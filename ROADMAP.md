@@ -154,15 +154,15 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 | B GitHub Action 门禁 | 🟡 工具链就绪 | git remote（推送后补真实 PR 演示截图） |
 | C judge 校准闭环 | 🟡 工具链完备 | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳） |
 | D TRAIL 自检 + trace_analyzer | ✅ 完成 | — |
-| E flywheel 导出 | 🟡 出口就绪 | AgentRL-Lab 字段级对齐 → **现已解锁**（见 §6.4） |
+| E flywheel 导出 | ✅ 出口就绪 + **AgentRL-Lab 字段级对齐完成**（2026-08-26：`export --format agentrl`，跨仓 `load_trajectories` 回读测试钉死） |
 | v1.0 tag | ⏸ 未打 | B/C 收尾后 |
 
-### 8.2 代码缺陷与待改进点（按优先级）
+### 8.2 代码缺陷与待改进点（按优先级；✅ = 2026-08-26 批次已修）
 
-1. **复核页进度不持久化**：`render_review_html` 生成的标注页刷新即丢已勾选项——
-   加 localStorage 自动保存/恢复（低成本高价值，直接服务人工标注会话）。
-2. **report/ci HTML 注入风险**：`render_report`/`render_comment` 用 f-string 直拼 task_id/output，
-   含 `<` `|` 等字符会破坏排版甚至注入——加 `html.escape` 与 markdown 表格转义。
+1. ✅ **复核页进度不持久化**：已加 localStorage 自动保存/恢复/清除
+   （`render_review_html`，刷新不丢已勾选项）。
+2. ✅ **report/ci HTML 注入风险**：`render_report`/`render_comment`/
+   `calibration.render_review_html` 全量 html.escape 与 markdown 竖线/换行转义。
 3. **gate 基线自动选择脆弱**：无显式 `--base-run` 时按 run_id 字母序取 first/last，
    多轮评测后可能选错基线；且 CI 每 PR 双跑 mock 无基线缓存（跨 PR 复用 main store artifact 未实现）。
 4. **store 索引无 compaction**：index.jsonl append-only 无限增长；`_latest_run` 全量扫描 O(n)，
@@ -177,5 +177,5 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 9. **CI 平台矩阵单一**：仅在 macOS 本机验证过，workflow 的 ubuntu 路径未真实跑过一次（随 remote 解锁）。
 10. **calibrate 复核页无键盘快捷键/自动跳焦**：210 例裁决的人机效率还能再压（nice-to-have）。
 
-> 快赢排序：#1、#2 半天内可完成且收益直接；#3–#6 属于「第一次真实使用就会撞上」的债，
-> 建议 flywheel 对齐（§6.4）之后立刻做。
+> 快赢排序：~~#1、#2~~ 已完成；#3–#6 属于「第一次真实使用就会撞上」的债，
+> 建议在 P5 联调消费 agentrl 格式数据时一并处理。
