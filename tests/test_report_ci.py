@@ -189,6 +189,81 @@ def test_render_report_rejects_empty_results(tmp_path):
         render_report("t", [], [], tmp_path / "r.html")
 
 
+# ---------- P5 技术债 #6：rescore / kappa-report 产物落盘 ----------
+
+
+def _cli_env(root):
+    import os
+    import sys
+
+    return {
+        **os.environ,
+        "PYTHONPATH": str(root / "src"),
+    }, [sys.executable, "-m", "lens.cli"]
+
+
+def test_rescore_writes_out_json(tmp_path):
+    """rescore --out-json：κ / 一致率 / 翻转清单可追溯可引用。"""
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    env, base_cmd = _cli_env(root)
+    ds = root / "src" / "lens" / "fixtures" / "demo_dataset.jsonl"
+    store_dir = tmp_path / "store"
+
+    def run(args):
+        return subprocess.run(
+            base_cmd + args, capture_output=True, text=True, env=env, cwd=tmp_path
+        )
+
+    assert run(["run", "--dataset", str(ds), "--version", "v1", "--n-trials", "2",
+                "--store-dir", str(store_dir)]).returncode == 0
+    out_json = tmp_path / "rescore.json"
+    assert run(["rescore", "--store-dir", str(store_dir),
+                "--judge-a", "exact", "--judge-b", "noisy:p=0.5,seed=3",
+                "--out-json", str(out_json)]).returncode == 0
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["run_id"] == "v1-seed0" and payload["n"] == 10
+    assert len(payload["judges"]) == 2
+    assert {"agreement", "kappa", "flips"} <= set(payload)
+
+
+def test_kappa_report_writes_out_json(tmp_path):
+    """kappa-report --out-json：报告 dict 含混淆矩阵与长度偏置键。"""
+    import subprocess
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from lens.calibration import build_pool
+
+    root = Path(__file__).resolve().parents[1]
+    env, base_cmd = _cli_env(root)
+
+    pool = build_pool(seed=0)[:20]
+    pool_path = tmp_path / "pool.jsonl"
+    pool_path.write_text(
+        "\n".join(json.dumps(asdict(i), ensure_ascii=False) for i in pool),
+        encoding="utf-8",
+    )
+    labels = [{"item_id": it.id, "human_label": it.truth} for it in pool]
+    labels_path = tmp_path / "labels.jsonl"
+    labels_path.write_text(
+        "\n".join(json.dumps(r, ensure_ascii=False) for r in labels), encoding="utf-8"
+    )
+    out_json = tmp_path / "kappa.json"
+    r = subprocess.run(
+        base_cmd + ["kappa-report", "--pool", str(pool_path),
+                    "--labels", str(labels_path), "--pairs", "",
+                    "--out-json", str(out_json)],
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )
+    assert r.returncode == 0, r.stderr
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["n_labeled"] == 20
+    assert {"human_vs_truth", "judge_vs_human", "length_bias", "kappa_ci95"} <= set(payload)
+
+
 # ---------- Phase B：CI 门禁模拟（无 remote 环境下的本地全流程） ----------
 
 

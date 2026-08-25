@@ -413,6 +413,7 @@ def kappa_report(
     judge: str = typer.Option("numeric", help="被体检的 judge 规格"),
     pairs: str = typer.Option("calib/pairs.jsonl", help="成对池（空字符串跳过 swap 检查）"),
     out: str = "reports/kappa.html",
+    out_json: str | None = typer.Option(None, help="机器可读 κ 报告路径（可追溯）"),
 ) -> None:
     """κ 体检报告：judge vs 人工 κ+CI、误杀/漏杀率、长度偏置、position-swap。"""
     from .calibration import (
@@ -438,6 +439,14 @@ def kappa_report(
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(render_kappa_html(report), encoding="utf-8")
     console.print(f"报告: {out}")
+    if out_json:
+        import json
+
+        Path(out_json).write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        console.print(f"JSON 结果: {out_json}")
     console.print(report)
 
 
@@ -447,6 +456,7 @@ def rescore(
     run_id: str = "",
     judge_a: str = "exact",
     judge_b: str = "noisy:p=0.15,seed=7",
+    out_json: str | None = typer.Option(None, help="机器可读重判分产物路径（可追溯）"),
 ) -> None:
     """换 judge 重判分：对历史轨迹重放两个 judge，报一致性与 κ（store-first 实战）。"""
     from .judge_lab import agreement_rate, cohens_kappa
@@ -468,21 +478,44 @@ def rescore(
         b_verdicts.append(jb(inp, gold, t.output))
         ref_verdicts.append(exact(t, {"gold": gold}))
 
+    judges_payload = []
     table = Table(title=f"重判分对比 · run={rid} · n={len(trajs)}")
     table.add_column("judge")
     table.add_column("通过数")
     table.add_column("与 exact_match 一致率")
     for name, v in ((judge_a, a_verdicts), (judge_b, b_verdicts)):
         agree_ref = sum(x == r for x, r in zip(v, ref_verdicts)) / len(v)
+        judges_payload.append({
+            "spec": name, "passed": sum(v), "n": len(v),
+            "agree_with_exact": round(agree_ref, 4),
+        })
         table.add_row(name, f"{sum(v)}/{len(v)}", f"{agree_ref:.3f}")
     console.print(table)
+
+    flips = [
+        f"{t.task_id}#t{t.metadata.get('trial', '?')}:{a}->{b}"
+        for t, a, b in zip(trajs, a_verdicts, b_verdicts) if a != b
+    ]
+    if out_json:
+        import json
+
+        payload = {
+            "run_id": rid,
+            "n": len(trajs),
+            "judges": judges_payload,
+            "agreement": round(agreement_rate(a_verdicts, b_verdicts), 4),
+            "kappa": round(cohens_kappa(a_verdicts, b_verdicts), 4),
+            "flips": flips,
+        }
+        Path(out_json).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_json).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        console.print(f"JSON 结果: {out_json}")
     console.print(
         f"两 judge 互相一致率={agreement_rate(a_verdicts, b_verdicts):.3f} · "
         f"κ={cohens_kappa(a_verdicts, b_verdicts):.3f}"
     )
-    flips = [
-        f"{t.task_id}:{a}->{b}" for t, a, b in zip(trajs, a_verdicts, b_verdicts) if a != b
-    ]
     if flips:
         shown = flips[:8]
         more = "..." if len(flips) > 8 else ""
