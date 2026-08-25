@@ -81,15 +81,18 @@ class LLMJudgeScorer:
         self.usage_totals = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
 
     def _chat(self, prompt: str) -> str:
-        if self.provider is not None:
-            res = self.provider.chat([{"role": "user", "content": prompt}])
-            self.usage_totals["prompt_tokens"] += res.prompt_tokens
-            self.usage_totals["completion_tokens"] += res.completion_tokens
-            self.usage_totals["calls"] += 1
-            return res.text
-        from .provider import MockProvider
+        # mock 回退同样记账（估算 token）——judge 成本必须全口径可追溯
+        if self.provider is None:
+            from .provider import MockProvider
 
-        return MockProvider().chat([{"role": "user", "content": prompt}]).text
+            provider = MockProvider()
+        else:
+            provider = self.provider
+        res = provider.chat([{"role": "user", "content": prompt}])
+        self.usage_totals["prompt_tokens"] += res.prompt_tokens
+        self.usage_totals["completion_tokens"] += res.completion_tokens
+        self.usage_totals["calls"] += 1
+        return res.text
 
     def score(self, traj: Trajectory, task: dict) -> bool:
         gold = str(task.get("gold", ""))

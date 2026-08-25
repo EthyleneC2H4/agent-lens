@@ -75,7 +75,7 @@ def demo(
         cand_run = runner.run(tasks, make_versioned_solver(0.75), version="v0.2-cand", n_trials=4)
 
     trajs = store.list_by_run(cand_run.run_id)
-    grouped, order = _group_results(trajs)
+    grouped, order, _judge_usage = _group_results(trajs)
     results = [grouped[tid] for tid in order]
     path = render_report(
         "AgentLens demo：v0.2-cand",
@@ -113,8 +113,8 @@ def demo(
 
 
 def _gate_core(store: ContentAddressedStore, base_id: str, cand_id: str, mode: str):
-    base_r, _ = _group_results(store.list_by_run(base_id))
-    cand_r, _ = _group_results(store.list_by_run(cand_id))
+    base_r, _, _ = _group_results(store.list_by_run(base_id))
+    cand_r, _, _ = _group_results(store.list_by_run(cand_id))
     diffs = diff_versions(base_r, cand_r)
     cand_rate = sum(sum(r) / len(r) for r in cand_r.values()) / len(cand_r) if cand_r else 0.0
     return evaluate_gate(diffs, GatePolicy(mode=mode), cand_rate)
@@ -183,7 +183,7 @@ def smoke(
     store = ContentAddressedStore(store_dir)
     summary = Runner(store).run(tasks, make_llm_solver(prov), version="smoke", n_trials=1)
     trajs = store.list_by_run(summary.run_id)
-    grouped, order = _group_results(trajs)
+    grouped, order, _judge_usage = _group_results(trajs)
     results = [grouped[tid] for tid in order]
     cost = _cost_totals(store, summary.run_id)
     path = render_report("AgentLens 冒烟：真实免费端点", results, order, out, cost_totals=cost)
@@ -200,18 +200,23 @@ def report(
     store_dir: str = ".lensstore",
     run_id: str | None = None,
     out: str = "reports/demo.html",
+    scorer: str = typer.Option("exact", help="重放评分口径：exact 或 llm_judge"),
 ) -> None:
     """读取最近一次（或指定）run 的结果，产出 pass@k/pass^k + CI 的 HTML 报告。"""
+    from .scorers import ExactMatchScorer, LLMJudgeScorer
+
     store = ContentAddressedStore(store_dir)
     if not store.index_path.exists():
         console.print("[red]store 为空：请先运行 lens run[/red]")
         raise typer.Exit(1)
     rid = run_id or _latest_run_id(store)
+    sc = ExactMatchScorer() if scorer == "exact" else LLMJudgeScorer()
     trajs = store.list_by_run(rid)
-    grouped, order = _group_results(trajs)
+    grouped, order, judge_usage = _group_results(trajs, sc)
     results = [grouped[tid] for tid in order]
     path = render_report(
-        "AgentLens 评测报告", results, order, out, cost_totals=_cost_totals(store, rid)
+        "AgentLens 评测报告", results, order, out,
+        cost_totals=_cost_totals(store, rid), judge_totals=judge_usage,
     )
     console.print(f"报告已生成: {path}")
     for k in (2, 4):
@@ -262,8 +267,8 @@ def gate(
             f"[yellow]⚠ 基线未显式指定：自动选择 base={base_id} cand={cand_id}"
             f"（按创建序，可用 lens runs 查看全部 run 后显式指定）[/yellow]"
         )
-    base_r, _ = _group_results(store.list_by_run(base_id))
-    cand_r, _ = _group_results(store.list_by_run(cand_id))
+    base_r, _, _ = _group_results(store.list_by_run(base_id))
+    cand_r, _, _ = _group_results(store.list_by_run(cand_id))
     diffs = diff_versions(base_r, cand_r)
     cand_rate = (
         sum(sum(r) / len(r) for r in cand_r.values()) / len(cand_r) if cand_r else 0.0
@@ -321,20 +326,25 @@ def _latest_run_id(store: ContentAddressedStore) -> str:
     return infos[-1].run_id if infos else ""
 
 
-def _group_results(trajs):
-    """按任务聚合并重放评分（judge later：轨迹先行落盘的直接收益）。"""
-    from .scorers import ExactMatchScorer
+def _group_results(trajs, scorer=None):
+    """按任务聚合并重放评分（judge later：轨迹先行落盘的直接收益）。
 
-    scorer = ExactMatchScorer()
+    scorer 为 LLMJudgeScorer 时返回其 usage_totals 拷贝（judge 成本
+    入报告成本区的数据源）；规则 scorer 返回 None。
+    """
+    from .scorers import ExactMatchScorer, LLMJudgeScorer
+
+    sc = scorer or ExactMatchScorer()
     grouped: dict[str, list[bool]] = {}
     order: list[str] = []
     for t in trajs:
         if t.task_id not in grouped:
             grouped[t.task_id] = []
             order.append(t.task_id)
-        ok = scorer.score(t, {"gold": str(t.metadata.get("gold", ""))})
+        ok = sc.score(t, {"gold": str(t.metadata.get("gold", ""))})
         grouped[t.task_id].append(ok)
-    return grouped, order
+    usage = dict(sc.usage_totals) if isinstance(sc, LLMJudgeScorer) else None
+    return grouped, order, usage
 
 
 @app.command()

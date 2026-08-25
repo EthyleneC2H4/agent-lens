@@ -150,6 +150,45 @@ def test_gate_explicit_runs_marks_not_auto(tmp_path):
     assert payload["baseline_auto"] is False
 
 
+# ---------- P5 技术债 #5：judge 用量入报告成本区 ----------
+
+
+def test_group_results_returns_judge_usage(tmp_path):
+    """_group_results 对 LLMJudgeScorer 返回 usage_totals 拷贝；规则 scorer 为 None。"""
+    from lens.cli import _group_results
+    from lens.scorers import LLMJudgeScorer
+    from lens.store import ContentAddressedStore
+
+    store = ContentAddressedStore(tmp_path / "s")
+    store.put(Trajectory(task_id="t", version="v", run_id="r", output="384",
+                         metadata={"gold": "384"}))
+    trajs = store.list_by_run("r")
+
+    grouped, order, usage = _group_results(trajs, LLMJudgeScorer())
+    assert order == ["t"] and grouped["t"] == [True]      # mock judge 语义判对
+    assert usage is not None and usage["calls"] == 1 and usage["prompt_tokens"] > 0
+
+    _, _, usage_rule = _group_results(trajs)              # 默认 exact_match
+    assert usage_rule is None
+
+
+def test_report_with_judge_totals_row(tmp_path):
+    html = render_report(
+        "t", [[True], [False]], ["a", "b"], tmp_path / "r.html",
+        cost_totals={"prompt_tokens": 10, "completion_tokens": 5, "calls": 2,
+                     "model": "m"},
+        judge_totals={"prompt_tokens": 7, "completion_tokens": 3, "calls": 2},
+    ).read_text(encoding="utf-8")
+    assert "<td>llm_judge（重放评分）</td>" in html and ">7<" in html and ">3<" in html
+
+
+def test_render_report_rejects_empty_results(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="结果为空"):
+        render_report("t", [], [], tmp_path / "r.html")
+
+
 # ---------- Phase B：CI 门禁模拟（无 remote 环境下的本地全流程） ----------
 
 

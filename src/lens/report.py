@@ -18,8 +18,15 @@ def render_report(
     task_ids: list[str],
     out_path: str | Path,
     cost_totals: dict[str, int] | None = None,
+    judge_totals: dict[str, int] | None = None,
 ) -> Path:
-    """生成 pass@k / pass^k + CI 的单页 HTML 报告。cost_totals 为可选成本汇总。"""
+    """生成 pass@k / pass^k + CI 的单页 HTML 报告。
+
+    cost_totals 为被评 agent 侧成本汇总；judge_totals 为重放评分时
+    LLMJudgeScorer 的用量（judge 成本与 agent 成本分行呈现，不混算）。
+    """
+    if not results:
+        raise ValueError("结果为空：没有可渲染的评测结果（先运行评测并确认轨迹落盘）")
     ks = sorted({1, 2, 4, min(8, max(len(r) for r in results))})
     rows = []
     for k in ks:
@@ -46,12 +53,21 @@ def render_report(
         ct = cost_totals.get("completion_tokens", 0)
         calls = cost_totals.get("calls", 0)
         model = cost_totals.get("model", "mock")
+        judge_row = ""
+        if judge_totals:
+            jpt = judge_totals.get("prompt_tokens", 0)
+            jct = judge_totals.get("completion_tokens", 0)
+            jcalls = judge_totals.get("calls", 0)
+            judge_row = (
+                f"<tr><td>llm_judge（重放评分）</td><td>{jcalls}</td><td>{jpt}</td>"
+                f"<td>{jct}</td><td>{jpt + jct}</td></tr>"
+            )
         cost_html = (
             f"<h2>成本记账</h2><table>"
             f"<tr><th>model</th><th>LLM calls</th><th>prompt tokens</th>"
             f"<th>completion tokens</th><th>total</th></tr>"
             f"<tr><td>{_esc(model)}</td><td>{calls}</td><td>{pt}</td><td>{ct}</td>"
-            f"<td>{pt + ct}</td></tr></table>"
+            f"<td>{pt + ct}</td></tr>{judge_row}</table>"
         )
     html_out = f"""<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>{_esc(title)}</title>
