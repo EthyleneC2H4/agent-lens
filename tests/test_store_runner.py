@@ -100,6 +100,57 @@ def test_runner_llm_solver_records_tokens(tmp_path):
     assert reply.steps == []
 
 
+# ---------- P5 技术债 #4：run 级二级索引与懒迁移 ----------
+
+
+def test_store_run_index_lazy_migration(tmp_path):
+    """旧式库（无 runs_manifest.json）打开后自动重建，list_by_run/list_runs 可用。"""
+    import shutil
+
+    store = ContentAddressedStore(tmp_path / "s")
+    store.put(Trajectory(task_id="a", version="v1", run_id="r1", output="x"))
+    store.put(Trajectory(task_id="b", version="v2", run_id="r2", output="y"))
+    store.put(Trajectory(task_id="c", version="v1", run_id="r1", output="z"))
+    # 模拟旧式库：抹掉 run 级索引产物
+    shutil.rmtree(tmp_path / "s" / "runs")
+    (tmp_path / "s" / "runs_manifest.json").unlink()
+
+    store2 = ContentAddressedStore(tmp_path / "s")
+    assert [t.task_id for t in store2.list_by_run("r1")] == ["a", "c"]   # 插入序保持
+    infos = store2.list_runs()
+    assert [i.run_id for i in infos] == ["r1", "r2"]                     # 首次出现序
+    by_id = {i.run_id: i for i in infos}
+    assert by_id["r1"].n_trajectories == 2 and by_id["r2"].n_trajectories == 1
+    assert by_id["r1"].seq < by_id["r2"].seq
+    assert (tmp_path / "s" / "runs_manifest.json").exists()              # 已回填
+
+
+def test_store_list_runs_first_appearance_order_not_alphabetical(tmp_path):
+    """seq 按「第一次出现」排，不受 run_id 字母序影响（gate 默认基线的数据源）。"""
+    store = ContentAddressedStore(tmp_path / "s")
+    for rid in ("z-first", "a-second", "m-third"):
+        store.put(Trajectory(task_id="t", version=rid, run_id=rid, output="o"))
+    assert [i.run_id for i in store.list_runs()] == ["z-first", "a-second", "m-third"]
+    assert [i.seq for i in store.list_runs()] == [0, 1, 2]
+
+
+def test_store_concurrent_puts_consistent(tmp_path):
+    """并发 put 下 run 级索引与 index 行数一致（线程安全冒烟）。"""
+    from lens.runner import Runner, Task, make_versioned_solver
+
+    tasks = [Task(id=f"t{i}", input="q", gold="ans") for i in range(12)]
+    store = ContentAddressedStore(tmp_path / "s")
+    summary = Runner(store, n_workers=8).run(
+        tasks, make_versioned_solver(1.0), version="v", n_trials=2
+    )
+    assert len(store.list_by_run(summary.run_id)) == 24
+    infos = store.list_runs()
+    assert len(infos) == 1 and infos[0].n_trajectories == 24
+    n_index = sum(1 for _ in (tmp_path / "s" / "index.jsonl").open())
+    n_blocks = len(list((tmp_path / "s" / "blocks").glob("*.json")))
+    assert store.dedup_hits() == max(n_index - n_blocks, 0)
+
+
 def test_load_dataset_jsonl():
     import pathlib
 
