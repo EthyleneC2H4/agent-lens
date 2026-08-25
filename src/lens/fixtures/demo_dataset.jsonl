@@ -1,0 +1,5 @@
+{"id": "case-01-add", "input": "计算 128+256 并只输出数字", "gold": "384"}
+{"id": "case-02-mul", "input": "计算 12*12 并只输出数字", "gold": "144"}
+{"id": "case-03-text", "input": "把 'hello world' 转大写输出", "gold": "HELLO WORLD"}
+{"id": "case-04-pct", "input": "3/8 的百分比形式（保留整数）", "gold": "37.5%"}
+{"id": "case-05-neg", "input": "计算 -17-25 并只输出数字", "gold": "-42"}
