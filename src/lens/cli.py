@@ -472,5 +472,54 @@ def rescore(
         console.print(f"[yellow]判定翻转 {len(flips)} 条: {shown}{more}[/yellow]")
 
 
+@app.command("meta-eval")
+def meta_eval() -> None:
+    """TRAIL 自检：scorer 对已知好/坏轨迹的分辨力必须满分（元评测）。"""
+    from .meta_eval import run_meta_eval
+
+    checks = run_meta_eval()
+    table = Table(title="Scorer 自检（评测器先过体检再评测别人）")
+    table.add_column("scorer")
+    table.add_column("cases")
+    table.add_column("TPR")
+    table.add_column("TNR")
+    table.add_column("状态")
+    for c in checks:
+        verdict = "[green]合格[/green]" if c.ok else "[red]失格[/red]"
+        table.add_row(c.scorer, str(c.n_cases), f"{c.tpr:.2f}", f"{c.tnr:.2f}", verdict)
+    console.print(table)
+    for c in checks:
+        if not c.ok:
+            console.print(f"[red]自检失败：{c.scorer} {c.failures}[/red]")
+            raise typer.Exit(1)
+    console.print("[green]全部 scorer 分辨力满分，可上岗[/green]")
+
+
+@app.command()
+def analyze(
+    store_dir: str = ".lensstore",
+    run_id: str = "",
+) -> None:
+    """失败轨迹模式聚类：工具错 / 格式错 / 规划错 / 空输出。"""
+    from .trace_analyzer import CATEGORIES, analyze_failures
+
+    store = ContentAddressedStore(store_dir)
+    rid = run_id or _latest_run_id(store)
+    trajs = store.list_by_run(rid)
+    if not trajs:
+        console.print("[red]store 中没有该 run 的轨迹[/red]")
+        raise typer.Exit(1)
+    buckets = analyze_failures(trajs)
+    n_fail = sum(len(b.task_ids) for b in buckets.values())
+    table = Table(title=f"失败模式聚类 · run={rid} · 失败 {n_fail}/{len(trajs)}")
+    table.add_column("category")
+    table.add_column("count")
+    table.add_column("cases")
+    table.add_column("含义")
+    for cat, b in buckets.items():
+        table.add_row(cat, str(len(b.task_ids)), ", ".join(b.task_ids[:5]), CATEGORIES[cat])
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()
