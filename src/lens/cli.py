@@ -330,5 +330,147 @@ def _group_results(trajs):
     return grouped, order
 
 
+@app.command()
+def calibrate(
+    out_dir: str = typer.Option("calib", help="校准产物目录"),
+    queue_size: int = typer.Option(240, help="复核队列目标规模（分歧项全保留）"),
+    seed: int = typer.Option(0, help="池构造种子（固定可复现）"),
+) -> None:
+    """构造 ≥200 例已知答案校准池 → 预标注分层 → 人工复核 HTML。
+
+    真值由构造保证；人工只做批量裁决。产出 pool.jsonl / pairs.jsonl / review.html。
+    """
+    from .calibration import (
+        build_pairs,
+        build_pool,
+        render_review_html,
+        stratified_queue,
+    )
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    pool = build_pool(seed)
+    pairs = build_pairs(seed=seed)
+
+    import json as _json
+    from dataclasses import asdict
+
+    (out / "pool.jsonl").write_text(
+        "\n".join(_json.dumps(asdict(i), ensure_ascii=False) for i in pool), encoding="utf-8"
+    )
+    (out / "pairs.jsonl").write_text(
+        "\n".join(_json.dumps(asdict(p), ensure_ascii=False) for p in pairs), encoding="utf-8"
+    )
+    judge = _resolve_judge_or_exit("numeric")
+    queue, prelabels, stats = stratified_queue(pool, judge, queue_size)
+    (out / "review.html").write_text(render_review_html(queue, prelabels), encoding="utf-8")
+
+    table = Table(title=f"分层抽样（分歧项全保留 · 队列 {len(queue)} 例）")
+    table.add_column("bucket")
+    table.add_column("pool")
+    table.add_column("queued")
+    for b in stats:
+        table.add_row(b.key, str(b.n_pool), str(b.n_queued))
+    console.print(table)
+    console.print(
+        f"[green]池 {len(pool)} 例 + 成对 {len(pairs)} 组已写入 {out}[/green]\n"
+        f"下一步：浏览器打开 {out / 'review.html'} 批量裁决 → 导出 labels.jsonl →\n"
+        f"运行 lens kappa-report --pool {out / 'pool.jsonl'} --labels <labels.jsonl>"
+    )
+
+
+def _resolve_judge_or_exit(spec: str):
+    from .calibration import resolve_judge
+
+    try:
+        return resolve_judge(spec)
+    except ValueError as e:
+        console.print(f"[red]{e}（可选：exact / numeric / noisy:p=…,seed=…）[/red]")
+        raise typer.Exit(2) from e
+
+
+@app.command()
+def kappa_report(
+    pool: str = typer.Option("calib/pool.jsonl"),
+    labels: str = typer.Option(..., help="人工标注 labels.jsonl（复核页导出）"),
+    judge: str = typer.Option("numeric", help="被体检的 judge 规格"),
+    pairs: str = typer.Option("calib/pairs.jsonl", help="成对池（空字符串跳过 swap 检查）"),
+    out: str = "reports/kappa.html",
+) -> None:
+    """κ 体检报告：judge vs 人工 κ+CI、误杀/漏杀率、长度偏置、position-swap。"""
+    from .calibration import (
+        CalibItem,
+        kappa_report,
+        load_jsonl,
+        make_pair_judge,
+        render_kappa_html,
+        swap_consistency,
+    )
+
+    pool_items = [CalibItem(**r) for r in load_jsonl(pool)]
+    report = kappa_report(pool_items, load_jsonl(labels), judge=_resolve_judge_or_exit(judge))
+
+    if pairs and Path(pairs).exists():
+        from .calibration import PairItem
+
+        pair_items = [PairItem(**r) for r in load_jsonl(pairs)]
+        j = _resolve_judge_or_exit(judge)
+        rate = swap_consistency(pair_items, make_pair_judge(j))
+        report["swap_consistency"] = round(rate, 4)
+
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(render_kappa_html(report), encoding="utf-8")
+    console.print(f"报告: {out}")
+    console.print(report)
+
+
+@app.command()
+def rescore(
+    store_dir: str = ".lensstore",
+    run_id: str = "",
+    judge_a: str = "exact",
+    judge_b: str = "noisy:p=0.15,seed=7",
+) -> None:
+    """换 judge 重判分：对历史轨迹重放两个 judge，报一致性与 κ（store-first 实战）。"""
+    from .judge_lab import agreement_rate, cohens_kappa
+    from .scorers import ExactMatchScorer
+
+    store = ContentAddressedStore(store_dir)
+    rid = run_id or _latest_run_id(store)
+    trajs = store.list_by_run(rid)
+    if not trajs:
+        console.print("[red]store 中没有该 run 的轨迹[/red]")
+        raise typer.Exit(1)
+    ja, jb = _resolve_judge_or_exit(judge_a), _resolve_judge_or_exit(judge_b)
+    exact = ExactMatchScorer().score
+    a_verdicts, b_verdicts, ref_verdicts = [], [], []
+    for t in trajs:
+        gold = str(t.metadata.get("gold", ""))
+        inp = str(t.metadata.get("input", ""))
+        a_verdicts.append(ja(inp, gold, t.output))
+        b_verdicts.append(jb(inp, gold, t.output))
+        ref_verdicts.append(exact(t, {"gold": gold}))
+
+    table = Table(title=f"重判分对比 · run={rid} · n={len(trajs)}")
+    table.add_column("judge")
+    table.add_column("通过数")
+    table.add_column("与 exact_match 一致率")
+    for name, v in ((judge_a, a_verdicts), (judge_b, b_verdicts)):
+        agree_ref = sum(x == r for x, r in zip(v, ref_verdicts)) / len(v)
+        table.add_row(name, f"{sum(v)}/{len(v)}", f"{agree_ref:.3f}")
+    console.print(table)
+    console.print(
+        f"两 judge 互相一致率={agreement_rate(a_verdicts, b_verdicts):.3f} · "
+        f"κ={cohens_kappa(a_verdicts, b_verdicts):.3f}"
+    )
+    flips = [
+        f"{t.task_id}:{a}->{b}" for t, a, b in zip(trajs, a_verdicts, b_verdicts) if a != b
+    ]
+    if flips:
+        shown = flips[:8]
+        more = "..." if len(flips) > 8 else ""
+        console.print(f"[yellow]判定翻转 {len(flips)} 条: {shown}{more}[/yellow]")
+
+
 if __name__ == "__main__":
     app()
