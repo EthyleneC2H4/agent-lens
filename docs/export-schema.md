@@ -1,0 +1,44 @@
+# Rollout 导出 Schema（eval→RL flywheel 出口）
+
+> AgentLens 侧的轨迹出口格式：把评测中「稳定答对」的高质量轨迹回流给
+> AgentRL-Lab 做 SFT 冷启动。字段设计遵循 Harbor 式 rollout 惯例。
+
+## 记录结构（JSONL，一行一条）
+
+```json
+{
+  "id": "case-01-add#t0",
+  "task":   { "id": "case-01-add", "input": "计算 128+256 并只输出数字", "gold": "384" },
+  "trajectory": { "output": "384", "steps": ["step1 ...", "step2 ..."] },
+  "reward": 1.0,
+  "source": {
+    "platform": "agent-lens",
+    "run_id": "v0.2-cand-seed0",
+    "version": "v0.2-cand",
+    "content_hash": "<sha256>",
+    "model": "nvidia/llama-3.3-nemotron-super-49b-v1"
+  }
+}
+```
+
+| 字段 | 必需 | 说明 |
+|---|---|---|
+| `id` | ✅ | `{task_id}#t{trial}`，同 run 内唯一 |
+| `task` | ✅ | 任务输入与参考答案（gold 可为空串） |
+| `trajectory` | ✅ | output + steps（过程状态序列） |
+| `reward` | ✅ | 当前口径：重放评分 0/1；未来可挂连续奖励 |
+| `source.content_hash` | ✅ | 内容寻址溯源——可回 AgentLens store 验证轨迹未篡改 |
+
+## 筛选规则（质量优先）
+
+- 任务级通过率 ≥ `--min-rate`（默认 0.75）才导出该任务全部 trial；
+- 侥幸型任务（pass@1 中等、pass^k 低）整体剔除——SFT 冷启动不要「偶尔对」的示范。
+
+## 与 AgentRL-Lab 的对接
+
+- 加载校验入口已内置：`lens.export.load_jsonl_rollouts`（必需字段缺失即抛错），
+  下游可直接复用或按其 `rollout/schema.py` 写适配器；
+- **pending**：AgentRL-Lab 仓库可达后做一次字段级映射核对
+  （预期差异点：`task.input` vs 其 prompt/messages 结构、reward 是否要求分段）；
+- 最小闭环演示：`lens run → lens export → load_jsonl_rollouts 回读`
+  （测试见 `tests/test_export.py::test_rollout_schema_roundtrip`）。

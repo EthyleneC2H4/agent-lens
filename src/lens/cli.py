@@ -521,5 +521,31 @@ def analyze(
     console.print(table)
 
 
+@app.command()
+def export(
+    store_dir: str = ".lensstore",
+    run_id: str = "",
+    min_rate: float = typer.Option(0.75, help="任务级通过率下限（稳定答对才导出）"),
+    out: str = "rollouts.jsonl",
+) -> None:
+    """导出高质量轨迹为 Harbor 式 rollout JSONL（eval→RL flywheel 出口）。"""
+    from .export import export_rollouts, load_jsonl_rollouts, write_jsonl
+    from .scorers import ExactMatchScorer
+
+    store = ContentAddressedStore(store_dir)
+    rid = run_id or _latest_run_id(store)
+    rollouts, per_task = export_rollouts(store, rid, ExactMatchScorer(), min_rate)
+    path = write_jsonl(rollouts, out)
+    kept = sum(1 for r in per_task.values() if r >= min_rate)
+    console.print(
+        f"run={rid}: {kept}/{len(per_task)} 任务达标 → {len(rollouts)} 条 rollout"
+    )
+    console.print(f"已写出: {path}")
+    back = load_jsonl_rollouts(path)   # 出口即校验：下游加载必须成功
+    assert len(back) == len(rollouts)
+    if not rollouts:
+        console.print("[yellow]⚠ 没有达标轨迹——降低 --min-rate 或先跑评测[/yellow]")
+
+
 if __name__ == "__main__":
     app()
