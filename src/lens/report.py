@@ -12,8 +12,9 @@ def render_report(
     results: list[list[bool]],
     task_ids: list[str],
     out_path: str | Path,
+    cost_totals: dict[str, int] | None = None,
 ) -> Path:
-    """生成 pass@k / pass^k + CI 的单页 HTML 报告。"""
+    """生成 pass@k / pass^k + CI 的单页 HTML 报告。cost_totals 为可选成本汇总。"""
     ks = sorted({1, 2, 4, min(8, max(len(r) for r in results))})
     rows = []
     for k in ks:
@@ -32,6 +33,19 @@ def render_report(
         cls = " class='fragile'" if 0 < rate < 1 else ""
         case_rows.append(
             f"<tr{cls}><td>{tid}</td><td>{len(r)}</td><td>{rate:.2f}</td><td>{bar}</td></tr>"
+        )
+    cost_html = ""
+    if cost_totals:
+        pt = cost_totals.get("prompt_tokens", 0)
+        ct = cost_totals.get("completion_tokens", 0)
+        calls = cost_totals.get("calls", 0)
+        model = cost_totals.get("model", "mock")
+        cost_html = (
+            f"<h2>成本记账</h2><table>"
+            f"<tr><th>model</th><th>LLM calls</th><th>prompt tokens</th>"
+            f"<th>completion tokens</th><th>total</th></tr>"
+            f"<tr><td>{model}</td><td>{calls}</td><td>{pt}</td><td>{ct}</td>"
+            f"<td>{pt + ct}</td></tr></table>"
         )
     html = f"""<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>{title}</title>
@@ -53,6 +67,7 @@ def render_report(
 {''.join(rows)}</table>
 <table><tr><th>case</th><th>trials</th><th>通过率</th><th></th></tr>
 {''.join(case_rows)}</table>
+{cost_html}
 <p class="muted">黄色行为脆弱 case（通过率方差大）——回归门禁的重点观察对象。</p>
 </body></html>"""
     out = Path(out_path)

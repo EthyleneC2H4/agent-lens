@@ -1,0 +1,3 @@
+{"id": "smoke-01-add", "input": "计算 17+26 并只输出数字", "gold": "43"}
+{"id": "smoke-02-cap", "input": "把 'agent lens' 每个单词首字母大写后输出", "gold": "Agent Lens"}
+{"id": "smoke-03-max", "input": "数列 4, 19, 7, 42, 15 中最大的数字是多少？只输出数字", "gold": "42"}

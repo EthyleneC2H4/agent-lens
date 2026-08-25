@@ -71,19 +71,25 @@ class LLMJudgeScorer:
     """rubric 化 judge —— 走 BaseProvider；MockProvider 给确定性分数。
 
     判定可重放：对同一批轨迹换 judge 模型重判分是 AgentLens 的一等公民操作。
+    judge 自身的 token 消耗在 usage_totals 里累计，供成本汇总。
     """
 
     def __init__(self, provider=None, rubric: str | None = None) -> None:
         self.provider = provider  # 延迟导入避免环；None 时用 mock
         self.rubric = rubric or "输出是否正确完成任务？只回答 yes 或 no。"
         self.name = "llm_judge"
+        self.usage_totals = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0}
 
     def _chat(self, prompt: str) -> str:
         if self.provider is not None:
-            return self.provider.chat([{"role": "user", "content": prompt}])
+            res = self.provider.chat([{"role": "user", "content": prompt}])
+            self.usage_totals["prompt_tokens"] += res.prompt_tokens
+            self.usage_totals["completion_tokens"] += res.completion_tokens
+            self.usage_totals["calls"] += 1
+            return res.text
         from .provider import MockProvider
 
-        return MockProvider().chat([{"role": "user", "content": prompt}])
+        return MockProvider().chat([{"role": "user", "content": prompt}]).text
 
     def score(self, traj: Trajectory, task: dict) -> bool:
         gold = str(task.get("gold", ""))

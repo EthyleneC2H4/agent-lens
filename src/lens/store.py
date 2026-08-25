@@ -22,7 +22,10 @@ class Trajectory(BaseModel):
     run_id: str                       # 一次评测批次
     output: str
     steps: list[str] = Field(default_factory=list)
-    tokens: int = 0
+    tokens: int = 0                   # agent 侧输出规模代理（词数），兼容旧字段
+    prompt_tokens: int = 0            # LLM 调用记账：输入 token（真实端点回传，mock 为估算）
+    completion_tokens: int = 0        # LLM 调用记账：输出 token
+    model: str = ""                   # 产出该轨迹的模型名（mock / 真实端点模型）
     metadata: dict[str, object] = Field(default_factory=dict)
 
 

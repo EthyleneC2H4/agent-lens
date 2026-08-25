@@ -105,7 +105,26 @@ OTel collector 兼容导出端点；对抗鲁棒性评测套件（InjecAgent 式
 
 通用 trace dashboard / Langfuse 替代品；多租户 SaaS 化；自有评测数据集的大规模构建（200 例封顶）；非 OpenAI-compatible 协议适配。
 
-## 6. 新会话上手清单
+## 6. 方案修订记录（2026-08-25 执行版调研结论）
+
+零上下文接手后对仓库与环境的实测：基线 19 tests 全绿 / demo EXIT=0；**本仓库无 git remote、环境无
+AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只改变可执行路径）：
+
+1. **Phase A 结构化记账**：token 记账的载体定为 `ChatResult`（text/prompt_tokens/completion_tokens/
+   model/latency_ms）——provider 返回结构化结果而非裸字符串，否则 token 无法端到端入轨迹；
+   重试退避通过**注入 transport 假件**离线测试（429/5xx/超时分类，尊重 Retry-After）；
+   runner 改为**单 job 失败隔离**：一个 case 崩溃不再炸掉整矩阵，失败计数进 RunSummary 显式上报。
+2. **Phase B 无 remote 的现实**：「陌生 PR 演示」在本机无法发生——交付物改为：gate 支持 `--out-json`
+   机器可读输出 + 零依赖 PR 评论渲染脚本（含同 PR 评论去重更新）+ workflow YAML + 本地全流程模拟
+   （注入退化版本被 block 拦截的实录）；真实 PR 截图演示项保留未勾，待仓库推送后一次补齐。
+3. **Phase C 标注池来源**：校准池采用**构造式已知答案**任务（数值近似错/格式等价/单位混淆/截断等受控
+   错误类型），真值由构造保证——这不违反硬约束 3（不是 LLM 伪冒人工标注，人工仍做批量裁决确认）；
+   κ 数字在人工标注会话前保持 pending，工具链与决策规则文档先行落地。换 judge 重判分用确定性
+   mock judge 人格（strict/lenient）离线实战 store 重放。
+4. **Phase E 跨仓对齐**：AgentRL-Lab 仓库当前不可达，导出 schema 以 Harbor 式 rollout 字段落地方案 +
+   映射说明文档交付，字段级对齐标注 pending。
+
+## 7. 新会话上手清单
 
 1. `cd agent-lens && uv sync && uv run pytest -q && uv run lens demo` —— 确认基线全绿（19 tests / EXIT=0）；
 2. 通读 `AGENTS.md` 与本文 §1–§2；
