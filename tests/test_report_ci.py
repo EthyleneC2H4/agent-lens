@@ -178,3 +178,42 @@ def test_pr_comment_script_dry_run(tmp_path):
     )
     assert r.returncode == 0
     assert "阻断" in r.stdout and "干跑模式" in r.stdout
+
+
+# ---------- 缺陷修复回归：HTML/markdown 转义 + 复核页进度持久化 ----------
+
+
+def test_report_escapes_html_in_ids_and_title(tmp_path):
+    """task_id 含 <script> 等字符时不得注入 HTML。"""
+    html = render_report(
+        "t<title>&", [[True], [False]], ["a<b>", "x|y"], tmp_path / "r.html"
+    ).read_text(encoding="utf-8")
+    assert "<script>" not in html and "&lt;b&gt;" in html and "t&lt;title&gt;" in html
+
+
+def test_render_comment_escapes_pipes_and_newlines():
+    from lens.ci import render_comment
+
+    payload = {
+        "allowed": False, "mode": "block", "base_run": "b", "cand_run": "c",
+        "cand_success_rate": 0.5,
+        "violations": ["退化 case 数 1 超过阈值 0: ['bad|case\nrow']"],
+        "diffs": [{"task_id": "weird|id", "base_passes": 1, "cand_passes": 0,
+                   "trials": 1, "status": "regressed"}],
+    }
+    md = render_comment(payload)
+    table_lines = [ln for ln in md.splitlines() if ln.startswith("|")]
+    assert all(ln.count("|") >= 4 for ln in table_lines)      # 竖线不破表
+    assert "weird\\|id" in md
+    assert "bad\\|case row" in md                              # 换行被压平
+
+
+def test_review_html_has_progress_persistence():
+    """复核页必须带 localStorage 进度保存/恢复（刷新不丢标注）。"""
+    from lens.calibration import build_pool, render_review_html
+
+    pool = build_pool(seed=0)[:3]
+    html = render_review_html(pool, ["yes"] * 3)
+    for marker in ("localStorage.setItem", "restoreProgress", "clearProgress",
+                   "lens-review-progress"):
+        assert marker in html, f"缺少进度持久化标记: {marker}"

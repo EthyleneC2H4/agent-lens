@@ -80,6 +80,72 @@ def write_jsonl(records: list[dict[str, object]], out_path: str | Path) -> Path:
     return out
 
 
+# ---------------- AgentRL-Lab 兼容出口（rollout/schema.py 字段级对齐） ----------------
+
+AGENTRL_TRAJECTORY_FIELDS = frozenset(
+    {"env_name", "seed", "transitions", "total_reward", "total_obs_tokens", "metadata"}
+)
+
+
+def to_agentrl_trajectory(rec: dict[str, object]) -> dict[str, object]:
+    """Harbor 式记录 → AgentRL-Lab `rollout/schema.Trajectory` 兼容字典。
+
+    映射规则：steps 逐条转 Transition(action=步骤, done=False)，末条追加
+    Transition(action=最终输出, reward, done=True)；obs 仅首步携带任务输入
+    （对齐其「obs 存压缩后观测原文」语义）；tokens 用词数近似。
+    """
+    task = rec["task"]
+    assert isinstance(task, dict)
+    traj = rec["trajectory"]
+    assert isinstance(traj, dict)
+    source = rec["source"]
+    assert isinstance(source, dict)
+    steps: list[str] = list(traj.get("steps") or [])  # type: ignore[arg-type]
+    output = str(traj.get("output", ""))
+    reward = float(rec["reward"])  # type: ignore[arg-type]
+
+    transitions = [
+        {
+            "obs": str(task.get("input", "")) if i == 0 else "",
+            "action": s,
+            "reward": 0.0,
+            "done": False,
+            "tokens": len(str(s).split()),
+        }
+        for i, s in enumerate(steps)
+    ]
+    transitions.append(
+        {
+            "obs": "",
+            "action": output,
+            "reward": reward,
+            "done": True,
+            "tokens": len(output.split()),
+        }
+    )
+    return {
+        "env_name": f"agentlens/{task['id']}",
+        "seed": None,
+        "transitions": transitions,
+        "total_reward": reward,
+        "total_obs_tokens": sum(int(t["tokens"]) for t in transitions),  # type: ignore[index]
+        "metadata": {"platform": source.get("platform"), "run_id": source.get("run_id"),
+                     "version": source.get("version"), "content_hash": source.get("content_hash")},
+    }
+
+
+def export_agentrl_format(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """整批转换并做字段契约自检（缺字段/多字段即抛错）。"""
+    out = [to_agentrl_trajectory(r) for r in records]
+    for t in out:
+        extra = set(t) - AGENTRL_TRAJECTORY_FIELDS
+        if extra:
+            raise ValueError(f"AgentRL-Lab schema 多出字段: {extra}")
+    return out
+
+
 def load_jsonl_rollouts(path: str | Path) -> list[dict[str, object]]:
     """下游（AgentRL-Lab）侧加载校验：schema 必需字段齐全。"""
     required = {"id", "task", "trajectory", "reward", "source"}

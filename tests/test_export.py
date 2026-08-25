@@ -58,3 +58,54 @@ def test_loader_rejects_missing_fields(tmp_path):
     bad.write_text('{"id": "x"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="缺字段"):
         load_jsonl_rollouts(bad)
+
+
+# ---------- flywheel：AgentRL-Lab schema 字段级对齐 ----------
+
+
+def _harbor_record() -> dict:
+    traj = Trajectory(
+        task_id="t1", version="v1", run_id="r1", output="42",
+        steps=["plan", "compute"], model="m",
+        metadata={"trial": 0, "gold": "42", "input": "q"},
+    )
+    return build_rollout(traj, 1.0, content_hash="abc123")
+
+
+def test_agentrl_contract_fields_exact():
+    """转换产物字段必须与 AgentRL-Lab rollout/schema.Trajectory 完全一致。"""
+    from lens.export import AGENTRL_TRAJECTORY_FIELDS, to_agentrl_trajectory
+
+    rec = to_agentrl_trajectory(_harbor_record())
+    assert set(rec) == set(AGENTRL_TRAJECTORY_FIELDS)
+    last = rec["transitions"][-1]
+    assert last["done"] is True and last["reward"] == 1.0
+    assert rec["transitions"][0]["obs"] == "q"      # 首步 obs 携带任务输入
+    assert rec["total_obs_tokens"] == sum(t["tokens"] for t in rec["transitions"])
+
+
+def test_agentrl_cross_repo_roundtrip(tmp_path):
+    """邻居仓库存在时：用其 load_trajectories 真实回读（flywheel 最小闭环）。"""
+    import sys
+    from pathlib import Path
+
+    from lens.export import export_agentrl_format, write_jsonl
+
+    sibling = Path(__file__).resolve().parents[2] / "agentrl-lab" / "src"
+    if not (sibling / "agentrl" / "rollout" / "schema.py").exists():
+        pytest.skip("agentrl-lab 邻居仓库不在工作区")
+
+    path = write_jsonl(export_agentrl_format([_harbor_record()]), tmp_path / "r.jsonl")
+
+    sys.path.insert(0, str(sibling))
+    try:
+        from agentrl.rollout.schema import load_trajectories
+
+        trajs = load_trajectories(path)
+    finally:
+        sys.path.remove(str(sibling))
+    assert len(trajs) == 1
+    assert trajs[0].env_name == "agentlens/t1"
+    assert trajs[0].total_reward == 1.0
+    assert trajs[0].actions()[-1] == "42"
+    assert trajs[0].rewards() == [0.0, 0.0, 1.0]    # 两步过程 + 终步

@@ -17,6 +17,11 @@ MARKER = "<!-- agent-lens-gate:v1 -->"
 ApiTransport = Any  # callable(method, url, token, body) -> dict|list
 
 
+def _md_cell(text: object) -> str:
+    """markdown 表格单元格转义：竖线断表、换行断行。"""
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
 def render_comment(payload: dict[str, object]) -> str:
     """把 gate --out-json 的 payload 渲染成 PR 评论 markdown。"""
     allowed = bool(payload["allowed"])
@@ -43,14 +48,14 @@ def render_comment(payload: dict[str, object]) -> str:
     for d in diffs:
         assert isinstance(d, dict)
         lines.append(
-            f"| {status_icon.get(str(d['status']), '⚪')} {d['task_id']} "
+            f"| {status_icon.get(str(d['status']), '⚪')} {_md_cell(d['task_id'])} "
             f"| {d['base_passes']}/{d['trials']} | {d['cand_passes']}/{d['trials']} "
             f"| {d['status']} |"
         )
     violations = payload.get("violations") or []
     if violations:
         lines += ["", "**违规项**"]
-        lines += [f"- ⚠️ {v}" for v in violations]
+        lines += [f"- ⚠️ {_md_cell(v)}" for v in violations]
     lines += [
         "",
         "<sub>pass@k（乐观界）/ pass^k（悲观界）双侧分布口径见 README；"

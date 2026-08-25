@@ -262,12 +262,38 @@ _REVIEW_TMPL = """<!doctype html>
 完成后点「导出标注」，得到 labels.jsonl。</p>
 <div class="bar">已裁决 <b id="done">0</b>/{n_items}
  <span class="warn" id="warn"></span>
- <button onclick="exportLabels()">导出标注 labels.jsonl</button></div>
+ <button onclick="exportLabels()">导出标注 labels.jsonl</button>
+ <button onclick="clearProgress()">清除进度</button></div>
 {items}
 <script>
+const PROGRESS_KEY = 'lens-review-progress';
 function updateDone(){{
   document.getElementById('done').textContent =
     [...document.querySelectorAll('fieldset')].filter(f => f.querySelector('input:checked')).length;
+}}
+function persistProgress(){{
+  // 刷新不丢进度：勾选状态实时写入 localStorage
+  const state = {{}};
+  for (const f of document.querySelectorAll('fieldset')) {{
+    const sel = f.querySelector('input:checked');
+    if (sel) state[f.dataset.id] = sel.value;
+  }}
+  try {{ localStorage.setItem(PROGRESS_KEY, JSON.stringify(state)); }} catch (e) {{}}
+}}
+function restoreProgress(){{
+  try {{
+    const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || '{{}}');
+    for (const [id, val] of Object.entries(saved)) {{
+      const el = document.querySelector(`input[name="${{id}}"][value="${{val}}"]`);
+      if (el) el.checked = true;
+    }}
+  }} catch (e) {{}}
+}}
+function clearProgress(){{
+  try {{ localStorage.removeItem(PROGRESS_KEY); }} catch (e) {{}}
+  for (const r of document.querySelectorAll('input[type=radio]')) r.checked = false;
+  document.getElementById('warn').textContent = '';
+  updateDone();
 }}
 function exportLabels(){{
   const rows=[]; let missing=0;
@@ -281,22 +307,27 @@ function exportLabels(){{
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'labels.jsonl'; a.click();
 }}
-document.addEventListener('change', updateDone);
+document.addEventListener('change', () => {{ persistProgress(); updateDone(); }});
+restoreProgress();
 </script></body></html>"""
 
 
 def render_review_html(queue: list[CalibItem], prelabels: list[str]) -> str:
-    """生成自包含复核页；judge 建议只展示不预选。"""
+    """生成自包含复核页；judge 建议只展示不预选。内容经 html.escape 防注入。"""
+    import html as _html
+
     chunks = []
     minutes = max(1, round(len(queue) * 9 / 60))
     for it, pre in zip(queue, prelabels):
+        qid = _html.escape(it.id, quote=True)
         chunks.append(
-            f'<fieldset data-id="{it.id}"><legend>{it.id} '
-            f'<span class="cat">[{it.category}] judge 建议: {pre}</span></legend>'
-            f'<div class="io">任务: {it.task_input}\n参考答案: {it.gold}\n'
-            f'Agent 输出: {it.agent_output}</div>'
-            f'<label><input type="radio" name="{it.id}" value="1">正确</label>'
-            f'<label><input type="radio" name="{it.id}" value="0">错误</label>'
+            f'<fieldset data-id="{_html.escape(it.id)}"><legend>{_html.escape(it.id)} '
+            f'<span class="cat">[{_html.escape(it.category)}] judge 建议: {pre}</span></legend>'
+            f'<div class="io">任务: {_html.escape(it.task_input)}\n'
+            f'参考答案: {_html.escape(it.gold)}\n'
+            f'Agent 输出: {_html.escape(it.agent_output)}</div>'
+            f'<label><input type="radio" name="{qid}" value="1">正确</label>'
+            f'<label><input type="radio" name="{qid}" value="0">错误</label>'
             f"</fieldset>"
         )
     return _REVIEW_TMPL.format(n_items=len(queue), minutes=minutes, items="\n".join(chunks))

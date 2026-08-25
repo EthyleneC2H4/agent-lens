@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 from .metrics import bootstrap_ci, pass_caret_k, pass_hat_k
+
+
+def _esc(text: object) -> str:
+    return html.escape(str(text))
 
 
 def render_report(
@@ -32,7 +37,8 @@ def render_report(
         bar = "█" * int(rate * 20)
         cls = " class='fragile'" if 0 < rate < 1 else ""
         case_rows.append(
-            f"<tr{cls}><td>{tid}</td><td>{len(r)}</td><td>{rate:.2f}</td><td>{bar}</td></tr>"
+            f"<tr{cls}><td>{_esc(tid)}</td><td>{len(r)}</td><td>{rate:.2f}</td>"
+            f"<td>{bar}</td></tr>"
         )
     cost_html = ""
     if cost_totals:
@@ -44,11 +50,11 @@ def render_report(
             f"<h2>成本记账</h2><table>"
             f"<tr><th>model</th><th>LLM calls</th><th>prompt tokens</th>"
             f"<th>completion tokens</th><th>total</th></tr>"
-            f"<tr><td>{model}</td><td>{calls}</td><td>{pt}</td><td>{ct}</td>"
+            f"<tr><td>{_esc(model)}</td><td>{calls}</td><td>{pt}</td><td>{ct}</td>"
             f"<td>{pt + ct}</td></tr></table>"
         )
-    html = f"""<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>{title}</title>
+    html_out = f"""<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>{_esc(title)}</title>
 <style>
  body{{font-family:ui-sans-serif,system-ui;max-width:760px;
       margin:2rem auto;padding:0 1rem;color:#1a1a2e}}
@@ -60,7 +66,7 @@ def render_report(
  tr.fragile td{{background:#fff7e6}}
  .muted{{color:#777;font-size:.85rem}}
 </style></head><body>
-<h1>{title}</h1>
+<h1>{_esc(title)}</h1>
 <p class="muted">pass@k（乐观界 · Codex 无偏估计器）与 pass^k（悲观界 · k 次全过）
 夹出真实能力区间；单次 pass@1 的波动可达 pp 量级，门禁必须看分布。</p>
 <table><tr><th>指标</th><th>pass@k</th><th>pass^k</th><th>per-task 均值 bootstrap 95% CI</th></tr>
@@ -72,5 +78,5 @@ def render_report(
 </body></html>"""
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(html, encoding="utf-8")
+    out.write_text(html_out, encoding="utf-8")
     return out

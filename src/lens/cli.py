@@ -527,18 +527,26 @@ def export(
     run_id: str = "",
     min_rate: float = typer.Option(0.75, help="任务级通过率下限（稳定答对才导出）"),
     out: str = "rollouts.jsonl",
+    fmt: str = typer.Option("harbor", help="harbor 或 agentrl（AgentRL-Lab SFT 兼容格式）"),
 ) -> None:
-    """导出高质量轨迹为 Harbor 式 rollout JSONL（eval→RL flywheel 出口）。"""
-    from .export import export_rollouts, load_jsonl_rollouts, write_jsonl
+    """导出高质量轨迹为 rollout JSONL（eval→RL flywheel 出口）。"""
+    from .export import (
+        export_agentrl_format,
+        export_rollouts,
+        load_jsonl_rollouts,
+        write_jsonl,
+    )
     from .scorers import ExactMatchScorer
 
     store = ContentAddressedStore(store_dir)
     rid = run_id or _latest_run_id(store)
     rollouts, per_task = export_rollouts(store, rid, ExactMatchScorer(), min_rate)
+    if fmt == "agentrl":
+        rollouts = export_agentrl_format(rollouts)
     path = write_jsonl(rollouts, out)
     kept = sum(1 for r in per_task.values() if r >= min_rate)
     console.print(
-        f"run={rid}: {kept}/{len(per_task)} 任务达标 → {len(rollouts)} 条 rollout"
+        f"run={rid}: {kept}/{len(per_task)} 任务达标 → {len(rollouts)} 条 rollout（format={fmt}）"
     )
     console.print(f"已写出: {path}")
     back = load_jsonl_rollouts(path)   # 出口即校验：下游加载必须成功
