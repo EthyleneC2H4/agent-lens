@@ -76,3 +76,20 @@ def test_chatresult_total_and_mock_accounting():
     assert r.total_tokens == 7
     m = MockProvider().chat([{"role": "user", "content": "hello world foo"}])
     assert m.prompt_tokens > 0 and m.completion_tokens > 0   # mock 也走记账演练
+
+
+# ---------- P5 技术债 #7：MockProvider pairwise 分支（离线确定性） ----------
+
+
+def test_mock_provider_pairwise_numeric_branch():
+    """pairwise 形态 prompt：谁更接近参考答案选谁；格式差异宽容；等距 tie。"""
+    m = MockProvider()
+
+    def ask(gold, a, b):
+        prompt = f"任务: q\n参考答案: {gold}\n候选 A: {a}\n候选 B: {b}\n只回答 A/B/tie:"
+        return m.chat([{"role": "user", "content": prompt}]).text
+
+    assert ask("384", "384", "385") == "A"          # A 更接近
+    assert ask("384", "385", "384") == "B"          # 交换位置后仍按质量选
+    assert ask("384", "384", "384") == "tie"        # 同对同错
+    assert ask("37.5%", "37.5 %", "37.6%") == "A"   # % 与空格宽容

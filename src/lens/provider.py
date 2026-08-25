@@ -59,11 +59,34 @@ class BaseProvider(Protocol):
     def chat(self, messages: list[dict[str, str]]) -> ChatResult: ...
 
 
+def _num_of(line: str) -> float | None:
+    """从「前缀: 数值」行剥出数值（% / 千分位 / 空格宽容）；非数值返回 None。"""
+    t = line.split(":", 1)[-1].strip().rstrip("%").replace(",", "").replace(" ", "")
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def _pair_pick(gold_line: str, a_line: str, b_line: str) -> str:
+    """pairwise 判定：谁更接近参考答案选谁；等距/不可解析 → tie。"""
+    g, ga, gb = _num_of(gold_line), _num_of(a_line), _num_of(b_line)
+    if g is None or ga is None or gb is None:
+        return "tie"
+    da, db = abs(ga - g), abs(gb - g)
+    if da < db:
+        return "A"
+    if db < da:
+        return "B"
+    return "tie"
+
+
 class MockProvider:
     """确定性 mock：对 prompt 做稳定哈希映射到固定词表。
 
     规则：prompt 含参考答案与 agent 输出时，做包含式匹配返回 yes/no，
-    使 LLMJudgeScorer 在离线测试中有语义而非纯随机。
+    使 LLMJudgeScorer 在离线测试中有语义而非纯随机；
+    含参考答案与候选 A/B 时（pairwise 形态），按与参考答案的接近度返回 A/B/tie。
     """
 
     _WORDS = ("yes", "no", "maybe", "ok")
@@ -72,10 +95,15 @@ class MockProvider:
         self.model = model
 
     def chat(self, messages: list[dict[str, str]]) -> ChatResult:
-        text = "\n".join(m.get("content", "") for m in messages)
+        lines = [m.get("content", "") for m in messages]
+        text = "\n".join(lines)
         gold_line = next((ln for ln in text.splitlines() if "参考答案" in ln), "")
         out_line = next((ln for ln in text.splitlines() if "Agent 输出" in ln), "")
-        if gold_line and out_line:  # judge 形态的 prompt：做包含式语义判定
+        a_line = next((ln for ln in text.splitlines() if "候选 A" in ln), "")
+        b_line = next((ln for ln in text.splitlines() if "候选 B" in ln), "")
+        if gold_line and a_line and b_line:      # pairwise 形态：接近度选优
+            answer = _pair_pick(gold_line, a_line, b_line)
+        elif gold_line and out_line:             # 单输出 judge 形态：包含式语义判定
             gold = gold_line.split(":", 1)[-1].strip()
             out = out_line.split(":", 1)[-1].strip()
             answer = "yes" if (gold and out and gold.strip() == out.strip()) else "no"

@@ -443,6 +443,30 @@ def make_pair_judge(judge):
     return judge_pair
 
 
+def make_llm_pair_judge(provider, rubric: str = "两个候选答案哪个更好？"):
+    """真 pairwise judge：A/B 双候选一次一问，回答解析为 A/B/tie。
+
+    与 make_pair_judge（规则包装、两候选分别打分）不同：真实 LLM pairwise
+    一眼同看两个候选，能检出「分别打分都判对但相对偏好翻转」的位置偏置。
+    未解析的回答容错为 tie。离线确定性由 MockProvider 的 pairwise 分支保证。
+    """
+
+    def judge_pair(task_input: str, gold: str, first: str, second: str) -> str:
+        prompt = (
+            f"{rubric}\n任务: {task_input}\n参考答案: {gold}\n"
+            f"候选 A: {first}\n候选 B: {second}\n只回答 A、B 或 tie:"
+        )
+        res = provider.chat([{"role": "user", "content": prompt}])
+        ans = res.text.strip().lower().rstrip(".").rstrip("。")
+        if ans.startswith("a"):
+            return "A"
+        if ans.startswith("b"):
+            return "B"
+        return "tie"
+
+    return judge_pair
+
+
 # ---------------- κ 报告 HTML 渲染 ----------------
 
 

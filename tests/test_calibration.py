@@ -100,3 +100,85 @@ def test_resolve_judge_specs():
     assert resolve_judge("noisy:p=1.0,seed=1")("q", "384", "384") is False  # 全翻转
     with pytest.raises(ValueError):
         resolve_judge("unknown")
+
+
+# ---------- P5 技术债 #7：真 pairwise LLM judge ----------
+
+
+class _ScriptedProv:
+    """按调用顺序回放脚本回复的假 provider（记录收到的 prompt）。"""
+
+    def __init__(self, replies):
+        from lens.provider import ChatResult
+
+        self._chatresult = ChatResult
+        self.replies = list(replies)
+        self.prompts: list[str] = []
+
+    def chat(self, messages):
+        self.prompts.append(messages[0]["content"])
+        return self._chatresult(text=self.replies.pop(0))
+
+
+def test_make_llm_pair_judge_single_prompt_two_candidates():
+    """真 pairwise：一次 prompt 同看两候选；解析 A/B/tie；未知回答按 tie。"""
+    from lens.calibration import make_llm_pair_judge
+
+    prov = _ScriptedProv(["A", "B", "tie", "乱七八糟"])
+    jp = make_llm_pair_judge(prov)
+    assert jp("q", "384", "384", "385") == "A"
+    assert jp("q", "384", "385", "384") == "B"
+    assert jp("q", "384", "384", "384") == "tie"
+    assert jp("q", "384", "384", "385") == "tie"      # 未解析 → 容错为 tie
+    assert len(prov.prompts) == 4 and "候选 A" in prov.prompts[-1]
+    assert "候选 B" in prov.prompts[-1]               # 双候选同 prompt（真 pairwise）
+
+
+def test_llm_pair_judge_position_bias_detected_by_swap():
+    """永远选 A 的位置偏置 judge 被 swap_consistency 抓住；忠实的得满分。"""
+    from lens.calibration import make_llm_pair_judge, swap_consistency
+
+    pairs = build_pairs(n=6, seed=0)
+    biased = make_llm_pair_judge(_ScriptedProv(["A"] * 12))
+    assert swap_consistency(pairs, biased) == 0.0     # AB 对、BA 错 → 无一致命中
+
+    honest = make_llm_pair_judge(_ScriptedProv(["A", "B"] * 6))
+    assert swap_consistency(pairs, honest) == 1.0     # 两个方向都指认 better
+
+
+def test_kappa_report_pair_mode_llm_offline(tmp_path):
+    """kappa-report --pair-mode llm 走 MockProvider pairwise 分支，离线确定性。"""
+    import json as _json
+    from dataclasses import asdict
+
+    from lens import cli
+    from lens.calibration import build_pairs, build_pool
+
+    pool = build_pool(seed=0)[:20]
+    pairs = build_pairs(n=8, seed=0)
+    pool_path = tmp_path / "pool.jsonl"
+    pairs_path = tmp_path / "pairs.jsonl"
+    labels_path = tmp_path / "labels.jsonl"
+    pool_path.write_text(
+        "\n".join(_json.dumps(asdict(i), ensure_ascii=False) for i in pool),
+        encoding="utf-8",
+    )
+    pairs_path.write_text(
+        "\n".join(_json.dumps(asdict(p), ensure_ascii=False) for p in pairs),
+        encoding="utf-8",
+    )
+    labels_path.write_text(
+        "\n".join(
+            _json.dumps({"item_id": it.id, "human_label": it.truth}, ensure_ascii=False)
+            for it in pool
+        ),
+        encoding="utf-8",
+    )
+    cli.kappa_report(
+        pool=str(pool_path), labels=str(labels_path), judge="numeric",
+        pairs=str(pairs_path), out=str(tmp_path / "kappa.html"),
+        out_json=str(tmp_path / "kappa.json"), pair_mode="llm",
+    )
+    payload = _json.loads((tmp_path / "kappa.json").read_text(encoding="utf-8"))
+    # better=精确答案 vs worse=±δ：mock pairwise 两个方向都应稳定指认 better
+    assert payload["swap_consistency"] == 1.0

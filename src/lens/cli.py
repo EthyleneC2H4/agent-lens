@@ -414,6 +414,9 @@ def kappa_report(
     pairs: str = typer.Option("calib/pairs.jsonl", help="成对池（空字符串跳过 swap 检查）"),
     out: str = "reports/kappa.html",
     out_json: str | None = typer.Option(None, help="机器可读 κ 报告路径（可追溯）"),
+    pair_mode: str = typer.Option(
+        "wrap", help="swap 检查的成对 judge：wrap（规则包装）或 llm（真 pairwise prompt）"
+    ),
 ) -> None:
     """κ 体检报告：judge vs 人工 κ+CI、误杀/漏杀率、长度偏置、position-swap。"""
     from .calibration import (
@@ -429,11 +432,16 @@ def kappa_report(
     report = kappa_report(pool_items, load_jsonl(labels), judge=_resolve_judge_or_exit(judge))
 
     if pairs and Path(pairs).exists():
-        from .calibration import PairItem
+        from .calibration import PairItem, make_llm_pair_judge
 
         pair_items = [PairItem(**r) for r in load_jsonl(pairs)]
-        j = _resolve_judge_or_exit(judge)
-        rate = swap_consistency(pair_items, make_pair_judge(j))
+        if pair_mode == "llm":
+            from .provider import select_provider
+
+            pair_judge = make_llm_pair_judge(select_provider("real"))  # 缺 key 回落 mock
+        else:
+            pair_judge = make_pair_judge(_resolve_judge_or_exit(judge))
+        rate = swap_consistency(pair_items, pair_judge)
         report["swap_consistency"] = round(rate, 4)
 
     Path(out).parent.mkdir(parents=True, exist_ok=True)
