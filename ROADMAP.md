@@ -132,13 +132,50 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
    错误类型），真值由构造保证——这不违反硬约束 3（不是 LLM 伪冒人工标注，人工仍做批量裁决确认）；
    κ 数字在人工标注会话前保持 pending，工具链与决策规则文档先行落地。换 judge 重判分用确定性
    mock judge 人格（strict/lenient）离线实战 store 重放。
-4. **Phase E 跨仓对齐**：AgentRL-Lab 仓库当前不可达，导出 schema 以 Harbor 式 rollout 字段落地方案 +
-   映射说明文档交付，字段级对齐标注 pending。
+4. **Phase E 跨仓对齐**：~~AgentRL-Lab 仓库当前不可达~~ **2026-08-26 更正**：`../agentrl-lab/src/agentrl/
+   rollout/schema.py` 实际就在工作区隔壁（Trajectory{env_name, seed, transitions[{obs,action,reward,
+   done,tokens}], total_reward, ...}），字段级适配器 + 回读验证可立即执行，flywheel 闭环从 pending 转为可做。
 
 ## 7. 新会话上手清单
 
-1. `cd agent-lens && uv sync && uv run pytest -q && uv run lens demo` —— 确认基线全绿（19 tests / EXIT=0）；
+1. `cd agent-lens && uv sync && uv run pytest -q && uv run lens demo` —— 确认基线全绿（45 tests / EXIT=0）；
 2. 通读 `AGENTS.md` 与本文 §1–§2；
 3. `git log --oneline` + 本文勾选状态 ⇒ 定位当前 Phase；
 4. 从第一个未完成 Phase 开工；涉及真实 API key 时向用户确认环境变量已配置；
 5. 收工：pytest 绿 → 更新本文勾选 → commit。
+
+## 8. 现状总结与待改进清单（2026-08-26 深化轮收工盘点）
+
+### 8.1 完成情况一览
+
+| Phase | 状态 | 缺的外部条件 |
+|---|---|---|
+| A 真实通路加固 | ✅ 完成 | 仅缺 key 做一次真模型冒烟实测 |
+| B GitHub Action 门禁 | 🟡 工具链就绪 | git remote（推送后补真实 PR 演示截图） |
+| C judge 校准闭环 | 🟡 工具链完备 | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳） |
+| D TRAIL 自检 + trace_analyzer | ✅ 完成 | — |
+| E flywheel 导出 | 🟡 出口就绪 | AgentRL-Lab 字段级对齐 → **现已解锁**（见 §6.4） |
+| v1.0 tag | ⏸ 未打 | B/C 收尾后 |
+
+### 8.2 代码缺陷与待改进点（按优先级）
+
+1. **复核页进度不持久化**：`render_review_html` 生成的标注页刷新即丢已勾选项——
+   加 localStorage 自动保存/恢复（低成本高价值，直接服务人工标注会话）。
+2. **report/ci HTML 注入风险**：`render_report`/`render_comment` 用 f-string 直拼 task_id/output，
+   含 `<` `|` 等字符会破坏排版甚至注入——加 `html.escape` 与 markdown 表格转义。
+3. **gate 基线自动选择脆弱**：无显式 `--base-run` 时按 run_id 字母序取 first/last，
+   多轮评测后可能选错基线；且 CI 每 PR 双跑 mock 无基线缓存（跨 PR 复用 main store artifact 未实现）。
+4. **store 索引无 compaction**：index.jsonl append-only 无限增长；`_latest_run` 全量扫描 O(n)，
+   大 store 下 report/gate 变慢——加 run 级别索引或分段 compaction。
+5. **judge 成本未进报告**：LLMJudgeScorer.usage_totals 只活在 scorer 实例里，
+   `_group_results` 重放评分后未汇入 render_report 的成本区。
+6. **rescore / kappa-report 输出不落盘**：仅 console 表格，不可追溯不可引用——
+   补 JSONL/HTML 产物路径参数。
+7. **position-swap 是规则包装不是真 pairwise judge**：make_pair_judge 用规则 judge 包装修剪，
+   真实场景需要 LLM pairwise prompt（A/B 两候选一问一答），待接 provider 后补真通路。
+8. **export reward 只有 0/1**：无部分分数通道（如 key_state 部分命中比例）；schema 文档已预留说法。
+9. **CI 平台矩阵单一**：仅在 macOS 本机验证过，workflow 的 ubuntu 路径未真实跑过一次（随 remote 解锁）。
+10. **calibrate 复核页无键盘快捷键/自动跳焦**：210 例裁决的人机效率还能再压（nice-to-have）。
+
+> 快赢排序：#1、#2 半天内可完成且收益直接；#3–#6 属于「第一次真实使用就会撞上」的债，
+> 建议 flywheel 对齐（§6.4）之后立刻做。
