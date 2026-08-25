@@ -80,6 +80,76 @@ def test_gate_json_payload_shape(tmp_path, monkeypatch):
     assert len(payload["diffs"]) == 5 and {"task_id", "status"} <= set(payload["diffs"][0])
 
 
+# ---------- P5 技术债 #3：gate 基线自动选择改创建序 ----------
+
+
+def test_gate_baseline_auto_picks_creation_order(tmp_path):
+    """无显式 --base-run 时按「创建序」取首/末 run，字母序陷阱不再选错基线。"""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    store_dir = tmp_path / "store"
+    env = {**os.environ, "PYTHONPATH": str(root / "src")}
+    base_cmd = [sys.executable, "-m", "lens.cli"]
+    ds = root / "src" / "lens" / "fixtures" / "demo_dataset.jsonl"
+
+    def run(args):
+        return subprocess.run(
+            base_cmd + args, capture_output=True, text=True, env=env, cwd=tmp_path
+        )
+
+    # 插入序 z-first → a-second → m-third（字母序会选中 a-second 当基线——错）
+    for version in ("z-first", "a-second", "m-third"):
+        assert run(["run", "--dataset", str(ds), "--version", version,
+                    "--n-trials", "2", "--store-dir", str(store_dir)]).returncode == 0
+    out_json = tmp_path / "gate.json"
+    r = run(["gate", "--store-dir", str(store_dir), "--mode", "observe",
+             "--out-json", str(out_json)])
+    assert r.returncode == 0
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["base_run"] == "z-first-seed0"
+    assert payload["cand_run"] == "m-third-seed0"
+    assert payload["baseline_auto"] is True
+    # lens runs 列表命令可枚举三个 run（创建序）
+    r = run(["runs", "--store-dir", str(store_dir)])
+    assert r.returncode == 0
+    for rid in ("z-first-seed0", "a-second-seed0", "m-third-seed0"):
+        assert rid in r.stdout
+
+
+def test_gate_explicit_runs_marks_not_auto(tmp_path):
+    """显式指定 --base-run/--cand-run 时 baseline_auto=False。"""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    store_dir = tmp_path / "store"
+    env = {**os.environ, "PYTHONPATH": str(root / "src")}
+    base_cmd = [sys.executable, "-m", "lens.cli"]
+    ds = root / "src" / "lens" / "fixtures" / "demo_dataset.jsonl"
+
+    def run(args):
+        return subprocess.run(
+            base_cmd + args, capture_output=True, text=True, env=env, cwd=tmp_path
+        )
+
+    for version in ("b-base", "c-cand"):
+        assert run(["run", "--dataset", str(ds), "--version", version,
+                    "--n-trials", "2", "--store-dir", str(store_dir)]).returncode == 0
+    out_json = tmp_path / "gate.json"
+    r = run(["gate", "--store-dir", str(store_dir), "--mode", "observe",
+             "--base-run", "b-base-seed0", "--cand-run", "c-cand-seed0",
+             "--out-json", str(out_json)])
+    assert r.returncode == 0
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["baseline_auto"] is False
+
+
 # ---------- Phase B：CI 门禁模拟（无 remote 环境下的本地全流程） ----------
 
 

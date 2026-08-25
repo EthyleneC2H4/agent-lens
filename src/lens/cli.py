@@ -221,6 +221,23 @@ def report(
 
 
 @app.command()
+def runs(store_dir: str = ".lensstore") -> None:
+    """列出 store 中全部 run（创建序）——显式挑选 gate 基线的依据。"""
+    store = ContentAddressedStore(store_dir)
+    infos = store.list_runs()
+    if not infos:
+        console.print("[red]store 为空：请先运行 lens run[/red]")
+        raise typer.Exit(1)
+    table = Table(title="run 列表（创建序 · gate 默认取首行为 base、末行为 cand）")
+    table.add_column("seq")
+    table.add_column("run_id")
+    table.add_column("n_trajectories")
+    for i in infos:
+        table.add_row(str(i.seq), i.run_id, str(i.n_trajectories))
+    console.print(table)
+
+
+@app.command()
 def gate(
     store_dir: str = ".lensstore",
     base_run: str = "",
@@ -232,12 +249,19 @@ def gate(
     import json
 
     store = ContentAddressedStore(store_dir)
-    runs = _all_run_ids(store)
-    base_id = base_run or (runs[0] if len(runs) >= 1 else "")
-    cand_id = cand_run or (runs[-1] if len(runs) >= 1 else "")
+    infos = store.list_runs()
+    # 默认基线按「创建序」取首/末：字母序在多轮评测后会选错（v0.10 < v0.2）
+    base_id = base_run or (infos[0].run_id if infos else "")
+    cand_id = cand_run or (infos[-1].run_id if infos else "")
     if not base_id or not cand_id:
         console.print("[red]需要至少一个已存在的 run（先 lens run）[/red]")
         raise typer.Exit(1)
+    baseline_auto = not (base_run and cand_run)
+    if baseline_auto:
+        console.print(
+            f"[yellow]⚠ 基线未显式指定：自动选择 base={base_id} cand={cand_id}"
+            f"（按创建序，可用 lens runs 查看全部 run 后显式指定）[/yellow]"
+        )
     base_r, _ = _group_results(store.list_by_run(base_id))
     cand_r, _ = _group_results(store.list_by_run(cand_id))
     diffs = diff_versions(base_r, cand_r)
@@ -269,6 +293,7 @@ def gate(
             "mode": mode,
             "base_run": base_id,
             "cand_run": cand_id,
+            "baseline_auto": baseline_auto,
             "cand_success_rate": round(cand_rate, 4),
             "violations": violations,
             "diffs": [
@@ -291,27 +316,9 @@ def gate(
         raise typer.Exit(1)
 
 
-def _all_run_ids(store: ContentAddressedStore) -> list[str]:
-    return sorted({t.run_id for t in _latest_run(store, all=True)})
-
-
 def _latest_run_id(store: ContentAddressedStore) -> str:
-    ids = _all_run_ids(store)
-    return ids[-1] if ids else ""
-
-
-def _latest_run(store: ContentAddressedStore, all: bool = False):  # noqa: A002
-    del all
-    trajs = []
-    if store.index_path.exists():
-        import json
-
-        for line in store.index_path.read_text(encoding="utf-8").splitlines():
-            rec = json.loads(line)
-            from .store import Trajectory
-
-            trajs.append(Trajectory.model_validate(rec))
-    return trajs
+    infos = store.list_runs()
+    return infos[-1].run_id if infos else ""
 
 
 def _group_results(trajs):
