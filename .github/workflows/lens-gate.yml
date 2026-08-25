@@ -1,0 +1,80 @@
+name: lens-gate
+
+# AgentLens 回归门禁：测试 → 双版本评测 → observe/block 判定 → PR 评论
+# 阈值与显著性规则见 docs/gate-policy.md
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "门禁模式：observe / block"
+        type: choice
+        options: [observe, block]
+        default: observe
+
+permissions:
+  contents: read
+  pull-requests: write   # PR 评论机器人需要；fork PR 场景 GitHub 会自动降权
+
+concurrency:
+  group: lens-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    env:
+      MODE: ${{ inputs.mode || 'observe' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: 安装依赖
+        run: uv sync
+
+      - name: 离线回归测试（mock-first 不变量）
+        run: uv run pytest -q
+
+      # ↓↓↓ 评测对象接入点：任何 Python 仓库把这里换成自己的 solver_spec 即可。
+      #     本仓库用内置 mock solver 演示管线；被评 agent 的工厂签名 () -> Solver，
+      #     返回 callable(task, trial_seed) -> (output, steps) | SolverReply。
+      - name: 基线评测（base）
+        run: |
+          uv run lens run \
+            --dataset src/lens/fixtures/demo_dataset.jsonl \
+            --version "base-${{ github.event.pull_request.base.sha || github.sha }}" \
+            --n-trials 8 --store-dir .lensstore
+
+      - name: 候选评测（HEAD）
+        run: |
+          uv run lens run \
+            --dataset src/lens/fixtures/demo_dataset.jsonl \
+            --version "cand-${{ github.event.pull_request.head.sha || github.sha }}" \
+            --n-trials 8 --store-dir .lensstore
+
+      - name: 门禁判定（超阈值时 exit 非 0）
+        id: gate
+        run: |
+          uv run lens gate --store-dir .lensstore --mode "$MODE" --out-json gate.json
+
+      - name: 上传门禁产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lens-gate-results
+          path: |
+            gate.json
+
+      - name: PR 评论（幂等：只更新既有评论）
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          uv run python scripts/pr_comment.py \
+            --gate-json gate.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --pr "${{ github.event.pull_request.number }}" \
+            --token "$GITHUB_TOKEN"

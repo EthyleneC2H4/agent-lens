@@ -127,18 +127,29 @@ def run(
     n_trials: int = 4,
     store_dir: str = ".lensstore",
     provider: str = typer.Option("mock", help="mock 或 real（real 缺 key 自动回落 mock）"),
+    solver_spec: str = typer.Option(
+        "",
+        help="动态加载被评 solver：'pkg.module:factory'（工厂 () -> Solver）；优先于 --provider",
+    ),
 ) -> None:
     """对数据集跑 n-trials 多采样评测并落盘轨迹。"""
+    import importlib
+
     from .provider import select_provider
     from .runner import load_dataset, make_llm_solver
 
     tasks = load_dataset(dataset)
-    prov = select_provider(provider)
-    solver = (
-        make_llm_solver(prov)
-        if type(prov).__name__ == "OpenAICompatibleProvider"
-        else make_versioned_solver(0.6)
-    )
+    if solver_spec:
+        module_name, _, attr = solver_spec.partition(":")
+        factory = getattr(importlib.import_module(module_name), attr)
+        solver = factory()
+    else:
+        prov = select_provider(provider)
+        solver = (
+            make_llm_solver(prov)
+            if type(prov).__name__ == "OpenAICompatibleProvider"
+            else make_versioned_solver(0.6)
+        )
     store = ContentAddressedStore(store_dir)
     runner = Runner(store)
     summary = runner.run(tasks, solver, version=version, n_trials=n_trials)
