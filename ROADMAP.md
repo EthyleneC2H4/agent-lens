@@ -15,27 +15,34 @@
 4. 与 AgentRL-Lab 打通一次高质量轨迹导出（eval→RL flywheel 最小演示）；
 5. 全流程一键复现 + 自包含 HTML 报告。
 
-## 1. 当前状态快照（MVP，commit `c79b968`，2026-08-25）
+## 1. 当前状态快照（2026-08-25 执行轮收工，HEAD 见 git log）
 
-19 个离线确定性测试全绿；`uv run lens demo` EXIT=0（两版本对比评测 → pass 分布 → HTML 报告 → observe/block 双模式门禁）。
+**45 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过。**
+Phase A/D 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件（GitHub remote、
+AGENTLENS_API_KEY、人工标注会话、AgentRL-Lab 仓库可达），见 §4 各 Phase 标注。
 
 | 模块 | 内容 | 状态 |
 |---|---|---|
-| `provider.py` | mock-first LLM 接入（MockProvider 默认 / OpenAI-compatible 免费节点可选） | ✅ |
-| `runner.py` | dataset × n-trials 并发矩阵；轨迹先落盘再评分 | ✅ |
+| `provider.py` | mock-first 接入 + ChatResult token 记账 + 参数化重试退避（transport 可注入） | ✅ |
+| `runner.py` | dataset × n-trials 并发矩阵；失败分类隔离（RunSummary）；轨迹先落盘再评分 | ✅ |
 | `store.py` | ★ 内容寻址轨迹库（两级 sha256）：同内容去重、judge 可重放重判分 | ✅ |
 | `scorers.py` | exact_match（数值容差）/ key_state（BFCL V3 state-based mini）/ llm_judge | ✅ |
 | `metrics.py` | pass@k 无偏估计器（Codex）/ pass^k（tau-bench 悲观界）/ bootstrap CI | ✅ |
-| `regression.py` | 版本 case 级 diff + GatePolicy{observe, block} | ✅ |
+| `regression.py` | 版本 case 级 diff + GatePolicy{observe, block} + gate JSON 输出 | ✅ |
 | `judge_lab.py` | Cohen's κ · position-swap · 长度偏置（judge 校准闭环骨架） | ✅ |
-| `report.py` | 自包含 HTML 报告（内联 CSS 零外链） | ✅ |
-| `cli.py` | lens run / report / gate / demo | ✅ |
+| `calibration.py` | ★ 校准闭环：210 例构造池 / 分层抽样 / 复核 HTML / κ 报告 / judge 人格注册表 | ✅ 新增 |
+| `meta_eval.py` | TRAIL 式 scorer 自检元评测（分辨力满分才上岗） | ✅ 新增 |
+| `trace_analyzer.py` | 失败轨迹模式聚类（工具/格式/规划/空输出） | ✅ 新增 |
+| `export.py` | Harbor 式 rollout 导出（溯源哈希 + 回读校验） | ✅ 新增 |
+| `ci.py` | gate JSON → GitHub PR 评论渲染与幂等 upsert | ✅ 新增 |
+| `report.py` | 自包含 HTML 报告（内联 CSS 零外链 + 成本记账区） | ✅ |
+| `cli.py` | demo/run/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export | ✅ |
 
 **Mock 边界诚实清单**：
 - MockProvider 是默认 provider：demo 数字全部来自脚本化假模型；
 - llm_judge 的判定词表是规则 mock，尚未接真实模型；
-- judge_lab 的 κ 计算逻辑已就绪，但标注集规模小，尚无可引用的 κ 体检数字；
-- GitHub Action 接入未开始。
+- κ 工具链就绪但**无人工标注数字**——切 block 前提文档中的阈值尚未被实测填充；
+- GitHub Action workflow 已入库，但真实 PR 流程演示待仓库推送。
 
 **不许退化的招牌不变量**：
 - Store trajectory first, judge later：轨迹必须先内容寻址落盘，评分是对历史轨迹的重放——换 judge 重判分是一等公民操作（见 `test_store_runner.py`）；
@@ -52,51 +59,55 @@
 
 ## 3. 阶段总览
 
-| Phase | 名称 | 依赖 | 现金支出 | 核心产出 |
+| Phase | 名称 | 依赖 | 现金支出 | 状态 |
 |---|---|---|---|---|
-| A | 真实通路加固 | 无 | ¥0 | 真 provider 冒烟 + token 成本记账 + 超时重试 |
-| B | GitHub Action 门禁 | A 可并行 | ¥0（免费额度） | PR 上 observe/block 两态演示 |
-| C | judge 校准闭环扩容 | A | ¥0 | ≥200 例标注集 + κ/偏置体检数字 + 切 block 决策规则 |
-| D | TRAIL 自检 runner + trace_analyzer | C | ¥0 | 附录位交付物 |
-| E | flywheel 导出 + v1.0 封版 | B, C | ¥0 | 轨迹导出对接 AgentRL-Lab + tag v1.0 |
-| F | 可选深化 | E | 视情况 | OTel 兼容端点 / 对抗鲁棒性套件 |
+| A | 真实通路加固 | 无 | ¥0 | ✅ 完成（ac7f265） |
+| B | GitHub Action 门禁 | A 可并行 | ¥0（免费额度） | 🟡 工具链就绪，真实 PR 演示待 remote |
+| C | judge 校准闭环扩容 | A | ¥0 | 🟡 工具链完备，κ 待人工标注会话 |
+| D | TRAIL 自检 runner + trace_analyzer | C | ¥0 | ✅ 完成（12413ca） |
+| E | flywheel 导出 + v1.0 封版 | B, C | ¥0 | 🟡 出口就绪，封版待 B/C 收尾 |
+| F | 可选深化 | E | 视情况 | 未开始 |
 
 ## 4. 各 Phase 详情
 
-### Phase A：真实通路加固（纯本地，立即开工）
+### Phase A：真实通路加固（纯本地，立即开工）——✅ 完成（commit ac7f265）
 **目标**：免费端点从「可选」变成「可靠可选」，且离线路径零影响。
-- [ ] provider 真实分支联测脚本：Nemotron 端点连通性 / 限流退避 / 超时重试参数化
-- [ ] token 成本记账：每次调用的 prompt/completion token 入轨迹记录，报告页汇总成本列
-- [ ] runner 失败重试策略显式化（网络错 vs 任务失败分开计数）
-- [ ] demo 增加 `--provider real` 旗标（无 key 自动回落 mock 并提示）
-**DoD**：pytest 全绿；默认路径行为不变；有 key 时冒烟脚本对 3 个 case 完成一次真模型评测并出报告。
+- [x] provider 真实分支联测：transport 可注入离线测试（429/5xx/超时分类、Retry-After 优先、指数退避参数化）
+- [x] token 成本记账：`ChatResult` 结构化返回（prompt/completion tokens/model/latency）→ Trajectory 字段 → 报告成本区
+- [x] runner 失败策略显式化：`RunSummary` 分开计数网络错/任务错；单 job 失败隔离不炸矩阵；顺修 `lens run` 的 `p_success` 潜在 bug
+- [x] demo/run 增加 `--provider real` 旗标（缺 key 自动回落 mock 并提示）；新增 `lens smoke` 冒烟命令
+**DoD**：pytest 全绿（30→38）；默认路径行为不变；冒烟命令就绪——**真实端点实测待配置 AGENTLENS_API_KEY**。
 
-### Phase B：GitHub Action 门禁
+### Phase B：GitHub Action 门禁——🟡 工具链就绪（c54ede4），真实 PR 演示待仓库推送
 **目标**：「这个改动能不能合入」长进 CI。
-- [ ] `.github/workflows/lens-gate.yml`：push/PR 触发，跑 `lens gate --policy observe`
-- [ ] PR 评论机器人：贴版本 diff 表（case 级 pass 变化 + 双侧分布夹逼指标）；block 模式超阈值时 exit 非 0
-- [ ] 报告 artifact 上传；门禁阈值规则文档化（什么算显著退化：pass@k 降 ×pp 且 CI 不重叠等）
-- [ ] 在本仓库自身或示例仓库上演示一次完整 PR 流程（截图入 docs/）
-**DoD**：陌生 PR 触发评测并在 PR 里看到 diff 表；人为注入一个退化版本能被 block 模式拦截。
+- [x] `.github/workflows/lens-gate.yml`：push/PR 触发，pytest → 双版本评测 → `gate --out-json` → artifact 上传 → PR 评论（幂等更新）
+- [x] PR 评论机器人：`lens.ci.render_comment` + 幂等 upsert（零依赖 urllib，transport 注入可离线测试）；block 超阈值 exit 非 0
+- [x] 门禁阈值规则文档化：`docs/gate-policy.md`（case 计数主规则 + CI 非重叠噪声甄别 + observe→block 前提链接）
+- [x] `--solver-spec` 动态加载被评 solver（CI 接入任意 Python 仓库的评测对象）
+- [x] 本地全流程模拟：注入退化版本（0.8→0.2）被 block 拦截 + 评论渲染契约测试
+- [ ] **陌生 PR 触发评测的实录演示（含截图入 docs/）**——本仓库当前无 remote，推送后一次补齐
+**DoD**：本地模拟等价测试通过；真实 PR 流程项保持未勾。
 
-### Phase C：judge 校准闭环扩容（本项目最重的差异化证据）
+### Phase C：judge 校准闭环扩容（本项目最重的差异化证据）——🟡 工具链完备（f40c5e7），κ 数字待人工标注
 **目标**：把「中等一致的 judge 凭什么拦工程师」用数字回答。
-- [ ] 标注集扩容到 ≥200 例：agent 先做预标注 + 分层抽样生成复核队列，人只做批量裁决（工具化，最小人力）
-- [ ] judge_lab 出体检报告：κ、position-swap 翻转率、长度偏置回归系数，附置信区间
-- [ ] 成文《切 block 的前提条件》：κ 阈值、误杀率上限、灰度观察期建议——写进 README 或 docs/
-- [ ] judge 模型可替换实验：换另一个免费节点模型重判分（store 重放能力第一次实战）
-**DoD**：一份 judge 校准报告页；决策规则文档；换 judge 重判分演示记录。
+- [x] 校准池 210 例构造式已知答案（8 类受控错误）+ 成对 24 组；预标注分层抽样（分歧项全保留）；自包含复核 HTML（建议不预选防锚定）
+- [x] judge_lab 体检报告：`lens kappa-report` 出 κ+bootstrap CI、误杀/漏杀率、长度偏置、position-swap 一致率（手算用例验证）
+- [x] 《切 block 的前提条件》：`docs/judge-block-policy.md` 七项硬性前提（κ≥0.6 / 误杀≤2% / swap≥95% / 灰度 ≥20 PR 等）与回退触发器
+- [x] 换 judge 重判分实战 store 重放：`lens rescore`（确定性 mock judge 人格离线演示；真实模型换判待 key）
+- [ ] **人工批量裁决会话**（~210 例 × ~9s ≈ 30 分钟）→ κ 实测数字回填决策文档
+**DoD**：报告页/决策规则文档/换 judge 重判分演示均落地；「≥200 例人工标注集」的**人**这一环按硬约束 3 不可由 agent 代劳，如实保持未勾。
 
-### Phase D：TRAIL 自检 runner + trace_analyzer（附录位）
-- [ ] TRAIL 式自检 runner：评测系统自身的元评测（scorer 对已知好/坏轨迹的分辨力）
-- [ ] trace_analyzer 子系统：失败轨迹的模式聚类（工具错 / 规划错 / 格式错）
-**DoD**：两者各有一个可运行入口与测试。
+### Phase D：TRAIL 自检 runner + trace_analyzer（附录位）——✅ 完成（12413ca）
+- [x] TRAIL 式自检 runner：`meta_eval.py` 元评测（exact_match/key_state/llm_judge 对已知好/坏轨迹分辨力满分才上岗）+ `lens meta-eval`
+- [x] trace_analyzer：`trace_analyzer.py` 失败模式聚类（tool_error/format_error/planning_error/empty/unknown）+ `lens analyze`
+**DoD**：两者各有可运行入口与测试（含「坏 scorer 必须被抓」的元自检）。
 
-### Phase E：flywheel 导出 + 封版
-- [ ] Harbor 式 rollout 导出格式（对接 AgentRL-Lab 的 SFT 冷启动回流）：导出 schema 对齐其 `rollout/schema.py`
-- [ ] 端到端演示：AgentLens 挑出高分轨迹 → 导出 JSONL → AgentRL-Lab 侧可加载
-- [ ] README 数字区换成实测值；`git tag v1.0`
-**DoD**：跨仓飞轮最小闭环演示成功（哪怕只有几条轨迹）。
+### Phase E：flywheel 导出 + 封版——🟡 出口就绪（154f488），v1.0 封版待 B/C 收尾
+- [x] Harbor 式 rollout 导出：`export.py` 任务级稳定率筛选 + content_hash 溯源 + 回读校验；schema 文档 `docs/export-schema.md`
+- [x] 端到端最小演示：run → export → 下游加载校验闭环（`tests/test_export.py`）；AgentRL-Lab 字段级对齐 pending（仓库不可达）
+- [x] README 数字区换成实测状态表
+- [ ] `git tag v1.0`——封版条件（B 真实 PR 演示 + C κ 数字）满足后再打
+**DoD**：飞轮出口侧完成；跨仓闭环演示待 AgentRL-Lab 可达。
 
 ### Phase F：可选深化
 OTel collector 兼容导出端点；对抗鲁棒性评测套件（InjecAgent 式注入用例 + utility/security 双指标，回应 agent 安全方向 JD 信号）；Web UI（非必需——CLI+HTML 报告已覆盖核心流）。
