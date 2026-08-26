@@ -15,11 +15,11 @@
 4. 与 AgentRL-Lab 打通一次高质量轨迹导出（eval→RL flywheel 最小演示）；
 5. 全流程一键复现 + 自包含 HTML 报告。
 
-## 1. 当前状态快照（2026-08-26 P5 深化轮收工，HEAD 见 git log）
+## 1. 当前状态快照（2026-08-26 P6 批次收工，HEAD 见 git log）
 
-**67 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过。**
-Phase A/D 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件（GitHub remote、
-AGENTLENS_API_KEY、人工标注会话、AgentRL-Lab 仓库可达），见 §4 各 Phase 标注。
+**80 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过。**
+Phase A/D/F(首项) 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件（GitHub remote、
+AGENTLENS_API_KEY、人工标注会话），见 §4 各 Phase 标注。
 
 | 模块 | 内容 | 状态 |
 |---|---|---|
@@ -33,10 +33,11 @@ AGENTLENS_API_KEY、人工标注会话、AgentRL-Lab 仓库可达），见 §4 �
 | `calibration.py` | ★ 校准闭环：210 例构造池 / 分层抽样 / 复核 HTML / κ 报告 / judge 人格注册表 | ✅ 新增 |
 | `meta_eval.py` | TRAIL 式 scorer 自检元评测（分辨力满分才上岗） | ✅ 新增 |
 | `trace_analyzer.py` | 失败轨迹模式聚类（工具/格式/规划/空输出） | ✅ 新增 |
+| `robustness.py` | 对抗鲁棒性套件（注入用例 / SecurityScorer 入元体检 / utility+ASR 双指标） | ✅ 新增（P6） |
 | `export.py` | Harbor 式 rollout 导出（溯源哈希 + 回读校验） | ✅ 新增 |
 | `ci.py` | gate JSON → GitHub PR 评论渲染与幂等 upsert | ✅ 新增 |
-| `report.py` | 自包含 HTML 报告（内联 CSS 零外链 + 成本记账区） | ✅ |
-| `cli.py` | demo/run/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export | ✅ |
+| `report.py` | 自包含 HTML 报告（内联 CSS 零外链 + 成本记账区 + per-case CI 列） | ✅ |
+| `cli.py` | demo/run/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness | ✅ |
 
 **Mock 边界诚实清单**：
 - MockProvider 是默认 provider：demo 数字全部来自脚本化假模型；
@@ -66,7 +67,7 @@ AGENTLENS_API_KEY、人工标注会话、AgentRL-Lab 仓库可达），见 §4 �
 | C | judge 校准闭环扩容 | A | ¥0 | 🟡 工具链完备，κ 待人工标注会话 |
 | D | TRAIL 自检 runner + trace_analyzer | C | ¥0 | ✅ 完成（12413ca） |
 | E | flywheel 导出 + v1.0 封版 | B, C | ¥0 | 🟡 出口就绪，封版待 B/C 收尾 |
-| F | 可选深化 | E | 视情况 | 未开始 |
+| F | 可选深化 | E | ¥0 | 🟡 鲁棒性套件完成（2825089），OTel/Web UI 未开始 |
 
 ## 4. 各 Phase 详情
 
@@ -109,8 +110,17 @@ AGENTLENS_API_KEY、人工标注会话、AgentRL-Lab 仓库可达），见 §4 �
 - [ ] `git tag v1.0`——封版条件（B 真实 PR 演示 + C κ 数字）满足后再打
 **DoD**：飞轮出口侧完成；跨仓闭环演示待 AgentRL-Lab 可达。
 
-### Phase F：可选深化
-OTel collector 兼容导出端点；对抗鲁棒性评测套件（InjecAgent 式注入用例 + utility/security 双指标，回应 agent 安全方向 JD 信号）；Web UI（非必需——CLI+HTML 报告已覆盖核心流）。
+### Phase F：可选深化——🟡 首项完成（P6 批次）
+- [x] 对抗鲁棒性评测套件：InjecAgent 式 tool-output injection 用例（4 类受控攻击，
+  构造真值自洽）+ utility/ASR 双指标 + `lens robustness`（HTML/JSON 产物、
+  `--max-asr` block 语义）；SecurityScorer 入 meta-eval 元体检；
+  Task.extra 通用元数据落盘通道。规则文档 `docs/robustness-suite.md`
+  （含诚实边界：marker 判别是启发式，LLM security judge 须走 κ 校准）。（2825089）
+- [ ] OTel collector 兼容导出端点
+- [ ] Web UI（非必需——CLI+HTML 报告已覆盖核心流）
+
+**DoD**（首项）：套件确定性可复现；双指标手算用例钉死；离线端到端 EXIT 语义正确。
+真实被测 agent 的实测数字待外部 solver 接入（`--solver-spec` 已就绪）。
 
 ## 5. 明确不做（v1.0 scope 之外）
 
@@ -187,6 +197,13 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
    （随 remote 解锁）。——外部依赖，保持未勾。
 10. ✅ **calibrate 复核页无键盘快捷键/自动跳焦**：j/k 移动、1/0 裁决并 advance、
     当前项高亮 + scrollIntoView 居中、「第 x/N 例」位置指示。（P5 批次 146b7c4）
+11. ✅ **gate-policy 承诺的「报告页 per-task CI 列」不存在**：case 表补逐题
+    bootstrap 95% CI（trial 层重采样——单值重采样会退化成点区间）。（P6 批次 a470e1f）
+12. ✅ **噪声甄别是文档规则不是机器输出**：`regression_summary` 此前是死代码；
+    gate 现对 base/cand 逐题做 trial 层 bootstrap，diffs JSON 增 `ci_overlap`
+    字段，regressed 且不重叠时 console 打 🔥 高置信标记（判定语义不变，
+    甄别信息辅助人工）。（P6 批次 8fe11e1）
 
-> P5 深化轮收工（2026-08-26）：十项中八项已修（#9 卡 remote 为唯一遗留）；
-> 新发现的债随修复记录在各条目的「遗留/诚实边界」注记里。
+> P6 批次收工（2026-08-26）：#11/#12 为「文档承诺未兑现」类缺口的清理；
+> 同批次落地 Phase F 首项对抗鲁棒性套件。§8.2 清单至此全部闭环
+> （唯一外部遗留仍是 #9 的 ubuntu CI 实跑）。

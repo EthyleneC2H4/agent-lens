@@ -18,7 +18,7 @@ uv run ruff check .          # lint（line-length=100，select E/F/I/W）
 uv run lens demo             # 端到端演示：两版本评测→报告→门禁（必须 EXIT=0）
 ```
 
-CLI 子命令（Typer）：`demo / run / runs / report / gate / smoke / calibrate / kappa-report / rescore / meta-eval / analyze / export`。
+CLI 子命令（Typer）：`demo / run / runs / report / gate / smoke / calibrate / kappa-report / rescore / meta-eval / analyze / export / robustness`。
 
 本地门禁模拟（无需 GitHub，见 docs/gate-policy.md §5）：
 
@@ -29,7 +29,7 @@ uv run lens gate --store-dir /tmp/demo-store --mode block --out-json gate.json  
 uv run python scripts/pr_comment.py --gate-json gate.json                       # 干跑渲染 PR 评论
 ```
 
-数据集是 JSONL（字段 `id/input/gold/required_states`），内置样例在 `src/lens/fixtures/`。
+数据集是 JSONL（字段 `id/input/gold/required_states`，可选 `extra` 携带任意元数据），内置样例在 `src/lens/fixtures/`。
 接入任意被评 agent 用 `lens run --solver-spec "pkg.module:factory"`（工厂 `() -> Solver`，
 Solver 即 `callable(task, trial_seed) -> (output, steps) | SolverReply`）；网络类错误抛
 `lens.provider.NetworkError` 子类，runner 会与任务失败分开计数。
@@ -55,7 +55,8 @@ report.py（自包含 HTML，内联 CSS 零外链）／ ci.py（gate JSON → Gi
 外围闭环模块：
 - `calibration.py` ★ judge 校准闭环：210 例构造式已知答案池 → 预标注分层抽样（分歧项全保留）→ 人工复核 HTML → κ 报告
 - `judge_lab.py` Cohen's κ、position-swap 一致率、长度偏置体检
-- `meta_eval.py` TRAIL 式元评测：scorer 对已知好/坏轨迹分辨力满分才允许上岗
+- `meta_eval.py` TRAIL 式元评测：scorer 对已知好/坏轨迹分辨力满分才允许上岗（含 security）
+- `robustness.py` 对抗鲁棒性套件：InjecAgent 式注入用例 + utility/ASR 双指标；`lens robustness --max-asr` 超阈值 exit 1（阈值语义见 docs/robustness-suite.md）
 - `trace_analyzer.py` 失败轨迹聚类（工具错/格式近似错/规划错/空输出）
 - `export.py` rollout JSONL 导出（eval→RL flywheel 出口；`--format agentrl` 对齐 AgentRL-Lab schema）
 - `provider.py` mock-first LLM 接入：MockProvider 默认（确定性规则输出）；OpenAICompatibleProvider 走真实模型（transport 可注入以便离线测重试退避）
@@ -79,7 +80,9 @@ report.py（自包含 HTML，内联 CSS 零外链）／ ci.py（gate JSON → Gi
 
 ## 当前状态与已知债
 
-- 67 个离线测试全绿；Phase A/D 完成，B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
+- 80 个离线测试全绿；Phase A/D/F(首项) 完成，B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
 - 未竟项均卡外部条件：git remote（真实 PR 门禁演示）、`AGENTLENS_API_KEY`（真模型冒烟实测）、人工标注会话（~30 分钟，产出 κ 实测数字）。
-- v1.0 tag 待 B/C 收尾后再打。ROADMAP §8.2 十项技术债已修八项（2026-08-26 P5 批次），
-  唯一遗留 #9 卡 remote；各条目下有「遗留/诚实边界」注记（CI 基线缓存、跨进程并发写 store 等）。
+- v1.0 tag 待 B/C 收尾后再打。ROADMAP §8.2 技术债清单已全部闭环
+  （2026-08-26 P5+P6 批次；唯一外部遗留 #9 ubuntu CI 实跑卡 remote）。
+- 数据集 JSONL 支持 `extra` 字段（任意元数据随轨迹落盘至 `metadata.extra`，
+  事后重放任意 scorer 口径的传输通道）。

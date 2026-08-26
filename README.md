@@ -27,10 +27,11 @@ judge_lab.py  Cohen's κ · position-swap · 长度偏置 —— judge 校准闭
 calibration.py ★ 校准闭环：210 例构造式已知答案池 → 预标注分层 → 人工复核 HTML → κ 报告
 meta_eval.py  TRAIL 式自检：scorer 对已知好/坏轨迹的分辨力满分才允许上岗
 trace_analyzer.py 失败轨迹模式聚类：工具错 / 格式近似错 / 规划错 / 空输出
+robustness.py 对抗鲁棒性套件：InjecAgent 式注入用例 + utility/ASR 双指标（docs/robustness-suite.md）
 export.py     Harbor 式 rollout JSONL 导出（eval→RL flywheel 出口，带溯源哈希）
 ci.py         CI 门禁胶水：gate JSON → GitHub PR 评论（幂等 upsert）
-report.py     自包含 HTML 报告（内联 CSS 零外链 + 成本记账区）
-cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export
+report.py     自包含 HTML 报告（内联 CSS 零外链 + 成本记账区 + per-case bootstrap CI）
+cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness
 ```
 
 ## 核心设计
@@ -47,10 +48,11 @@ cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescor
 
 | 项 | 状态 |
 |---|---|
-| 离线测试 | ✅ 67 个全绿（mock-first，零网络依赖） |
-| 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；GitHub Action workflow 就绪 |
+| 离线测试 | ✅ 80 个全绿（mock-first，零网络依赖） |
+| 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；gate JSON 含 CI 噪声甄别字段；GitHub Action workflow 就绪 |
 | judge 校准 | 🟡 工具链完备（池/分层/复核页/κ 手算验证）；**κ 数字待人工标注会话**（~30 分钟） |
 | 真实模型通路 | 🟡 `lens smoke` 就绪；待配置 `AGENTLENS_API_KEY`（NVIDIA 免费端点）后实测 |
+| 鲁棒性套件 | ✅ 注入用例 + utility/ASR 双指标离线实测；真实 agent 接入待外部 solver |
 | flywheel 出口 | ✅ rollout JSONL 导出+回读校验；与 AgentRL-Lab 字段级对齐 pending |
 
 ## 差异化口径
