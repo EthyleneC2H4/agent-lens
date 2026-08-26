@@ -139,7 +139,12 @@ class Runner:
                 prompt_tokens=rep.prompt_tokens,
                 completion_tokens=rep.completion_tokens,
                 model=rep.model,
-                metadata={"trial": i_trial, "gold": task.gold, "input": task.input},
+                metadata={
+                    "trial": i_trial,
+                    "gold": task.gold,
+                    "input": task.input,
+                    "required_states": task.required_states,   # 事后重放 key_state 判定的前提
+                },
             )
             self.store.put(traj)
 

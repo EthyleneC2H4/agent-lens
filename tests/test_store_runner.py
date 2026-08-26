@@ -100,6 +100,20 @@ def test_runner_llm_solver_records_tokens(tmp_path):
     assert reply.steps == []
 
 
+# ---------- P5 技术债 #8 前置修复：required_states 必须入轨迹 metadata ----------
+
+
+def test_runner_persists_required_states(tmp_path):
+    """required_states 落进 metadata——否则 key_state 判定事后无法重放。"""
+    from lens.runner import Task
+
+    ts = [Task(id="t1", input="q", gold="ans", required_states=["cart_size=1"])]
+    store = ContentAddressedStore(tmp_path / "s")
+    summary = Runner(store).run(ts, make_versioned_solver(1.0), version="v", n_trials=1)
+    traj = store.list_by_run(summary.run_id)[0]
+    assert traj.metadata["required_states"] == ["cart_size=1"]
+
+
 # ---------- P5 技术债 #4：run 级二级索引与懒迁移 ----------
 
 

@@ -60,6 +60,34 @@ def test_loader_rejects_missing_fields(tmp_path):
         load_jsonl_rollouts(bad)
 
 
+# ---------- P5 技术债 #8：reward_detail 部分分数通道 ----------
+
+
+def test_export_reward_detail_key_state_fraction(tmp_path):
+    """key_state 部分命中比例进 reward_detail；纯 exact 任务无该键；主奖励口径不变。"""
+    from lens.store import ContentAddressedStore as S
+
+    store = S(tmp_path / "s")
+    store.put(Trajectory(
+        task_id="t_ks", version="v", run_id="r", output="ans", steps=["cart_size=1"],
+        metadata={"trial": 0, "gold": "ans", "input": "q",
+                  "required_states": ["cart_size=1", "paid=true"]},
+    ))
+    store.put(Trajectory(
+        task_id="t_plain", version="v", run_id="r", output="ans",
+        metadata={"trial": 0, "gold": "ans", "input": "q"},
+    ))
+    rollouts, _rates = export_rollouts(store, "r", ExactMatchScorer(), min_task_pass_rate=0.75)
+    by_task = {rec["id"].split("#")[0]: rec for rec in rollouts}
+    assert by_task["t_ks"]["reward_detail"] == {"key_state_fraction": 0.5}
+    assert by_task["t_ks"]["reward"] == 1.0              # 主奖励仍是重放评分 0/1
+    assert "reward_detail" not in by_task["t_plain"]
+
+    path = write_jsonl(rollouts, tmp_path / "r.jsonl")
+    back = load_jsonl_rollouts(path)                      # 回读校验容忍可选字段
+    assert len(back) == 2
+
+
 # ---------- flywheel：AgentRL-Lab schema 字段级对齐 ----------
 
 

@@ -28,6 +28,7 @@
 | `trajectory` | ✅ | output + steps（过程状态序列） |
 | `reward` | ✅ | 当前口径：重放评分 0/1；未来可挂连续奖励 |
 | `source.content_hash` | ✅ | 内容寻址溯源——可回 AgentLens store 验证轨迹未篡改 |
+| `reward_detail` | ➖ 可选 | `{"key_state_fraction": x}`——required_states 命中比例（部分分数通道）；无状态断言的任务省略该键 |
 
 ## 筛选规则（质量优先）
 

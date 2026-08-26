@@ -2,7 +2,8 @@
 
 Harbor 式 rollout JSONL：task + trajectory + reward + source 溯源。
 只导出「稳定答对」的任务轨迹（SFT 冷启动要质量不要侥幸）；
-字段级对齐 AgentRL-Lab `rollout/schema.py` 的工作见 docs/export-schema.md（pending）。
+AgentRL-Lab `rollout/schema.py` 字段级对齐见 to_agentrl_trajectory 与
+docs/export-schema.md。reward_detail 为可选部分分数通道（key_state 命中比例）。
 """
 
 from __future__ import annotations
@@ -14,9 +15,14 @@ from .scorers import Scorer
 from .store import ContentAddressedStore, Trajectory
 
 
-def build_rollout(traj: Trajectory, reward: float, content_hash: str) -> dict[str, object]:
-    """单条轨迹 → Harbor 式 rollout 记录。"""
-    return {
+def build_rollout(
+    traj: Trajectory,
+    reward: float,
+    content_hash: str,
+    reward_detail: dict[str, float] | None = None,
+) -> dict[str, object]:
+    """单条轨迹 → Harbor 式 rollout 记录。reward_detail 为可选部分分数通道。"""
+    rec = {
         "id": f"{traj.task_id}#t{traj.metadata.get('trial', 0)}",
         "task": {
             "id": traj.task_id,
@@ -33,6 +39,19 @@ def build_rollout(traj: Trajectory, reward: float, content_hash: str) -> dict[st
             "model": traj.model,
         },
     }
+    if reward_detail is not None:
+        rec["reward_detail"] = reward_detail
+    return rec
+
+
+def _key_state_fraction(traj: Trajectory) -> dict[str, float] | None:
+    """部分分数通道：required_states 的命中比例；无状态断言的任务返回 None。"""
+    req = [str(s) for s in (traj.metadata.get("required_states") or [])]
+    if not req:
+        return None
+    joined = "\n".join(traj.steps)
+    frac = sum(1 for s in req if s in joined) / len(req)
+    return {"key_state_fraction": round(frac, 4)}
 
 
 def export_rollouts(
@@ -63,7 +82,7 @@ def export_rollouts(
         return 1.0 if scorer.score(t, {"gold": str(t.metadata.get("gold", ""))}) else 0.0
 
     rollouts = [
-        build_rollout(t, _reward(t), h)
+        build_rollout(t, _reward(t), h, reward_detail=_key_state_fraction(t))
         for tid, pairs in sorted(by_task.items())
         if per_task_rate[tid] >= min_task_pass_rate
         for t, h in pairs
