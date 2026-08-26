@@ -53,6 +53,7 @@ jobs:
           uv run lens run \
             --dataset src/lens/fixtures/demo_dataset.jsonl \
             --version "cand-${{ github.event.pull_request.head.sha || github.sha }}" \
+            --solver-spec lens.fixtures.degraded_solver:make_degraded_solver \
             --n-trials 8 --store-dir .lensstore
 
       - name: 门禁判定（超阈值时 exit 非 0）
@@ -68,11 +69,15 @@ jobs:
           path: |
             gate.json
 
-      - name: PR 评论（幂等：只更新既有评论）
-        if: github.event_name == 'pull_request'
+      - name: PR 评论（幂等：只更新既有评论；门禁失败时更要把 ⛔ 判定发出来）
+        if: always() && github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          if [ ! -f gate.json ]; then
+            echo "gate.json 不存在（前置步骤未产出），跳过评论"
+            exit 0
+          fi
           uv run python scripts/pr_comment.py \
             --gate-json gate.json \
             --repo "$GITHUB_REPOSITORY" \
