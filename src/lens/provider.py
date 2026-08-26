@@ -139,6 +139,8 @@ def http_transport(base_url: str, api_key: str, timeout_s: float) -> Transport:
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
+                # 显式 UA：部分网关的 bot 防护会拦 Python-urllib 默认 UA（实测 403）
+                "User-Agent": "agentlens/0.9 (regression-gate eval harness)",
             },
             method="POST",
         )
@@ -206,20 +208,33 @@ class OpenAICompatibleProvider:
         start = time.monotonic()
         resp = self._with_backoff(transport, body)
         latency_ms = int((time.monotonic() - start) * 1000)
+        text = str(resp["choices"][0]["message"]["content"])   # 结构已由 _with_backoff 校验
         usage = resp.get("usage") or {}
         return ChatResult(
-            text=str(resp["choices"][0]["message"]["content"]),
+            text=text,
             prompt_tokens=int(usage.get("prompt_tokens", 0)),
             completion_tokens=int(usage.get("completion_tokens", 0)),
             model=self.model,
             latency_ms=latency_ms,
         )
 
+    @staticmethod
+    def _shape_ok(resp: dict[str, Any]) -> bool:
+        try:
+            content = resp["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            return False
+        return content is not None
+
     def _with_backoff(self, transport: Transport, body: dict[str, Any]) -> dict[str, Any]:
         attempt = 0
         while True:
             try:
-                return transport(body)
+                resp = transport(body)
+                # 网关偶发 200 + 错误 JSON（缺 choices，free 池实测 502 包装）——同按可重试
+                if not self._shape_ok(resp):
+                    raise _Retryable(f"响应结构异常: {str(resp)[:120]}")
+                return resp
             except _Retryable as e:
                 attempt += 1
                 if attempt > self.max_retries:

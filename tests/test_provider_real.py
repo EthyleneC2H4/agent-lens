@@ -93,3 +93,73 @@ def test_mock_provider_pairwise_numeric_branch():
     assert ask("384", "385", "384") == "B"          # 交换位置后仍按质量选
     assert ask("384", "384", "384") == "tie"        # 同对同错
     assert ask("37.5%", "37.5 %", "37.6%") == "A"   # % 与空格宽容
+
+
+# ---------- P6：http_transport 必须携带显式 User-Agent ----------
+
+
+def test_http_transport_sends_explicit_user_agent(monkeypatch):
+    """带 bot 防护的 OpenAI-compatible 网关会拦 Python-urllib 默认 UA
+    （openzen 实测：无 UA 一律 403，curl/自定义 UA 均 200）——默认 transport
+    必须自带显式 UA，否则真实通路在部分端点上不可用。"""
+    import urllib.request
+
+    from lens.provider import http_transport
+
+    captured: dict = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"choices": [{"message": {"content": "ok"}}], "usage": {}}'
+
+    def fake_urlopen(req, timeout=None):
+        captured["req"] = req
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    send = http_transport("https://fake.example/v1", "test-key", 5)
+    out = send({"model": "m", "messages": []})
+    assert out["choices"][0]["message"]["content"] == "ok"
+    ua = next(
+        (v for k, v in captured["req"].headers.items() if k.lower() == "user-agent"), ""
+    )
+    assert ua and "python-urllib" not in ua.lower()
+
+
+# ---------- P6：畸形响应归类为可重试网络错 ----------
+
+
+def test_provider_retries_on_malformed_response(monkeypatch):
+    """网关偶发返回缺 choices 的错误 JSON（free 池实测）：应走退避重试，
+    而非让 KeyError 作为任务失败炸穿——重试耗尽后归一化为 NetworkError。"""
+    calls = {"n": 0}
+
+    def flaky(body):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"error": {"message": "upstream hiccup"}}   # 缺 choices
+        return {
+            "choices": [{"message": {"content": "A"}}],
+            "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+        }
+
+    sleeps: list[float] = []
+    res = _provider(flaky, sleeps, monkeypatch).chat([{"role": "user", "content": "hi"}])
+    assert res.text == "A" and calls["n"] == 2 and sleeps == [1.0]
+
+
+def test_provider_malformed_exhausts_retries_as_network_error(monkeypatch):
+    from lens.provider import NetworkError
+
+    def always_bad(body):
+        return {"object": "chat.completion"}   # 永远缺 choices
+
+    sleeps: list[float] = []
+    with pytest.raises(NetworkError, match="响应结构异常"):
+        _provider(always_bad, sleeps, monkeypatch).chat([{"role": "user", "content": "hi"}])
