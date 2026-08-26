@@ -49,6 +49,25 @@ def test_trajectory_token_fields_roundtrip(tmp_path):
     assert (back.prompt_tokens, back.completion_tokens, back.model) == (10, 4, "m1")
 
 
+# ---------- P6：兑现 gate-policy「报告页 per-task CI 列」承诺 ----------
+
+
+def test_report_per_case_ci_column(tmp_path):
+    """case 表逐题展示 bootstrap 95% CI（gate-policy.md §2.3 承诺的 per-task CI 列）。"""
+    from lens.metrics import bootstrap_ci
+
+    results = [[True, True, False, False], [True] * 4]
+    task_ids = ["a", "b"]
+    html = render_report("t", results, task_ids, tmp_path / "r.html").read_text(
+        encoding="utf-8"
+    )
+    assert "<th>95% CI</th>" in html
+    # 每个 case 的区间文本与独立手算的 trial 层 bootstrap_ci 一致
+    for tid, r, i in zip(task_ids, results, range(len(results))):
+        _, lo, hi = bootstrap_ci([float(x) for x in r], n_boot=300, seed=i)
+        assert f"{lo:.2f} – {hi:.2f}" in html.split(f">{tid}</td>")[1].split("</tr>")[0]
+
+
 def test_gate_json_payload_shape(tmp_path, monkeypatch):
     """gate --out-json 输出机器可读结构（CI 评论脚本的契约）。"""
     import subprocess

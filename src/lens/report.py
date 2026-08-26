@@ -39,13 +39,15 @@ def render_report(
             f"<td>{lo:.3f} – {hi:.3f}</td></tr>"
         )
     case_rows = []
-    for tid, r in zip(task_ids, results):
+    for i, (tid, r) in enumerate(zip(task_ids, results)):
         rate = sum(r) / len(r)
         bar = "█" * int(rate * 20)
         cls = " class='fragile'" if 0 < rate < 1 else ""
+        # gate-policy §2.3 承诺的 per-task CI 列：trial 层 bootstrap（seed=行号可复现）
+        _, lo, hi = bootstrap_ci([float(x) for x in r], n_boot=300, seed=i)
         case_rows.append(
             f"<tr{cls}><td>{_esc(tid)}</td><td>{len(r)}</td><td>{rate:.2f}</td>"
-            f"<td>{bar}</td></tr>"
+            f"<td>{bar}</td><td>{lo:.2f} – {hi:.2f}</td></tr>"
         )
     cost_html = ""
     if cost_totals:
@@ -87,7 +89,7 @@ def render_report(
 夹出真实能力区间；单次 pass@1 的波动可达 pp 量级，门禁必须看分布。</p>
 <table><tr><th>指标</th><th>pass@k</th><th>pass^k</th><th>per-task 均值 bootstrap 95% CI</th></tr>
 {''.join(rows)}</table>
-<table><tr><th>case</th><th>trials</th><th>通过率</th><th></th></tr>
+<table><tr><th>case</th><th>trials</th><th>通过率</th><th></th><th>95% CI</th></tr>
 {''.join(case_rows)}</table>
 {cost_html}
 <p class="muted">黄色行为脆弱 case（通过率方差大）——回归门禁的重点观察对象。</p>
