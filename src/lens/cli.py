@@ -227,6 +227,29 @@ def report(
 
 
 @app.command()
+def ui(
+    store_dir: str = typer.Option(".lensstore", help="轨迹库目录"),
+    host: str = typer.Option("127.0.0.1", help="绑定地址（默认仅本机）"),
+    port: int = typer.Option(8517, help="监听端口"),
+    scorer: str = typer.Option("exact", help="重放评分口径：exact 或 llm_judge"),
+) -> None:
+    """启动只读本机 Web UI：runs 列表 / run 重放详情 / gate 对比。Ctrl-C 退出。"""
+    from .scorers import ExactMatchScorer, LLMJudgeScorer
+    from .ui import serve_ui
+
+    store = ContentAddressedStore(store_dir)
+    sc = ExactMatchScorer() if scorer == "exact" else LLMJudgeScorer()
+    httpd = serve_ui(store, host=host, port=int(port), scorer=sc)
+    console.print(f"[green]Web UI[/] http://{host}:{port}/ （只读 · Ctrl-C 退出）")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        console.print("[yellow]Web UI 已退出[/yellow]")
+    finally:
+        httpd.server_close()
+
+
+@app.command()
 def runs(store_dir: str = ".lensstore") -> None:
     """列出 store 中全部 run（创建序）——显式挑选 gate 基线的依据。"""
     store = ContentAddressedStore(store_dir)
