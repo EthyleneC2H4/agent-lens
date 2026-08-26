@@ -1,68 +1,194 @@
+<div align="center">
+
 # AgentLens
 
-Agent 回归评测门禁与稳定性度量平台（v0.9-rc）。回答一个问题：**这个改动能不能合入？**
+**Regression gates & stability metrics for LLM agents —
+it answers exactly one question: *can this change be merged?***
 
-> 详细提案与路线图见 `ROADMAP.md`；门禁阈值规则见 `docs/gate-policy.md`。
+[![python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![tests](https://img.shields.io/badge/offline_tests-94_passing-brightgreen)](#measured-status)
+[![style](https://img.shields.io/badge/style-ruff-261230)](https://docs.astral.sh/ruff/)
+[![deps](https://img.shields.io/badge/deps-uv-orange)](https://docs.astral.sh/uv/)
+[![models](https://img.shields.io/badge/API_spend-%240-success)](#free-resource-red-line)
 
-不是又一个 Langfuse——不做通用 trace dashboard。Langfuse 回答「发生了什么」，AgentLens 回答「能不能合入」。
+**English** · [简体中文](README.zh-CN.md)
 
-## 快速上手
+Not another Langfuse. Langfuse tells you *what happened*;
+AgentLens tells you whether *to merge*.
+
+</div>
+
+---
+
+## Why
+
+Single-run evals of LLM agents are noise: one pass@1 fluctuates by percentage points
+across identical reruns. Merging (or blocking) an agent change on a point estimate is
+coin-flipping with extra steps. AgentLens turns evaluation into a **gate** with the
+statistics, the audit trail, and the judge accountability built in:
+
+| Without AgentLens | With AgentLens |
+|---|---|
+| One run, one number, vibes-based review | `n`-trial distributions: pass@k (optimistic bound) **and** pass^k (pessimistic bound) reported together |
+| Logs scattered across dashboards | Every trajectory content-addressed (sha256) — tamper-evident, deduplicated, replayable |
+| "The judge model said so" | Judge calibration loop: Cohen's κ, position-swap, false-block rate — **with hard prerequisites before a judge may block** |
+| Scorer bugs discovered in production | Scorers must pass TRAIL-style meta-eval (perfect discrimination on known-good/bad) before going on duty |
+
+## Core principles (non-negotiable)
+
+1. **Store trajectory first, judge later.** Trajectories hit disk content-addressed
+   *before* any scoring; scoring is a replay over history. Swapping judges and
+   re-scoring (`lens rescore`) is a first-class operation, never a re-run.
+2. **Dual-sided distribution sandwich.** pass@k (Codex unbiased estimator, optimistic)
+   and pass^k (tau-bench pessimistic) always travel together. Small "improvements"
+   that are pure noise become visually obvious.
+3. **Tiered gating.** `observe` mode reports and never blocks; flipping `llm_judge`
+   to `block` requires passing documented prerequisites
+   ([judge-block-policy](docs/judge-block-policy.md): κ ≥ 0.6, false-block ≤ 2%,
+   swap ≥ 95%, …). Rule scorers may block directly.
+4. **Judging decoupled from execution.** Scorers consume `Trajectory + task` only;
+   every scorer must be offline-testable; all LLM access goes through the provider
+   abstraction.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    R["runner.py<br/>dataset × n-trials matrix<br/>failure-isolated jobs"] --> S[("store.py ★<br/>content-addressed<br/>two-level sha256")]
+    S --> SC["scorers.py<br/>exact_match / key_state / llm_judge<br/><i>replay, not re-run</i>"]
+    SC --> M["metrics.py<br/>pass@k ∩ pass^k<br/>bootstrap CI"]
+    M --> G["regression.py<br/>per-case diff + CI-overlap<br/>GatePolicy"]
+    G --> O["report.py<br/>self-contained HTML"]
+    G --> P["ci.py<br/>idempotent PR comment"]
+    G --> B{"gate"}
+    B -->|"observe"| OK["📊 report only"]
+    B -->|"block"| NO["⛔ exit 1 on violation"]
+```
+
+<details>
+<summary><b>Module map</b> (click to expand)</summary>
+
+| Module | Role |
+|---|---|
+| `store.py` ★ | Content-addressed trajectory store (two-level sha256 + run-level index); same-content dedup for free |
+| `runner.py` | Dataset × n-trials concurrent matrix; network errors counted separately from task failures |
+| `scorers.py` | `exact_match` (numeric-tolerant) / `key_state` (BFCL V3-style state matching) / `llm_judge` |
+| `metrics.py` | pass@k unbiased estimator / pass^k pessimistic bound / bootstrap CI — hand-computed regression tests pin the math |
+| `regression.py` | Case-level diff (improved/regressed/fragile/unchanged) + `GatePolicy{observe, block}` |
+| `calibration.py` ★ | Judge calibration loop: 210-item constructed ground-truth pool → stratified pre-labeling → human review page → κ report |
+| `judge_lab.py` | Cohen's κ, position-swap consistency, length-bias check |
+| `meta_eval.py` | TRAIL-style scorer self-check: imperfect discrimination ⇒ off duty (includes security scorer) |
+| `robustness.py` | InjecAgent-style tool-output injection suite; utility rate + attack success rate dual metrics |
+| `trace_analyzer.py` | Failure-trajectory clustering (tool/format/planning/empty) |
+| `export.py` | Rollout export: Harbor-style JSONL / AgentRL-Lab schema / OTel collector push — the eval→RL flywheel outlet |
+| `ci.py` | Gate JSON → idempotent GitHub PR comment upsert |
+| `report.py` | Self-contained HTML report (inlined CSS, cost accounting, per-case bootstrap CIs) |
+| `ui.py` | Read-only local web UI: runs list / replay detail / gate compare (stdlib-only, binds 127.0.0.1) |
+
+</details>
+
+## Quick start
 
 ```bash
-uv sync
-uv run pytest -q          # 92 个离线确定性测试
-uv run lens demo          # 两版本对比评测 → pass 分布 → HTML 报告 → observe/block 双模式门禁
+git clone git@github.com:EthyleneC2H4/agent-lens.git && cd agent-lens
+uv sync                        # uv-managed; lockfile committed
+uv run pytest -q               # 94 offline deterministic tests, zero network
+uv run lens demo               # two-version eval → report → gate, EXIT=0
+uv run lens ui                 # read-only local web UI → http://127.0.0.1:8517
 ```
 
-## 架构
+Local end-to-end gate simulation (no GitHub required):
 
-```
-provider.py   mock-first LLM 接入：ChatResult token 记账、指数退避重试（transport 可注入）
-runner.py     dataset × n-trials 并发矩阵；失败分类隔离（网络错 vs 任务错）；RunSummary 显式统计
-store.py      ★ 内容寻址轨迹库（两级 sha256 + run 级二级索引）：同内容去重、judge 可重放重判分
-scorers.py    exact_match（数值容差）/ key_state（BFCL V3 state-based mini）/ llm_judge
-metrics.py    pass@k 无偏估计器（Codex）/ pass^k（tau-bench 悲观界）/ bootstrap CI
-regression.py 版本 case 级 diff + GatePolicy{observe, block}
-judge_lab.py  Cohen's κ · position-swap · 长度偏置 —— judge 校准闭环
-calibration.py ★ 校准闭环：210 例构造式已知答案池 → 预标注分层 → 人工复核 HTML → κ 报告
-meta_eval.py  TRAIL 式自检：scorer 对已知好/坏轨迹的分辨力满分才允许上岗
-trace_analyzer.py 失败轨迹模式聚类：工具错 / 格式近似错 / 规划错 / 空输出
-robustness.py 对抗鲁棒性套件：InjecAgent 式注入用例 + utility/ASR 双指标（docs/robustness-suite.md）
-export.py     rollout 导出：Harbor 式 JSONL / AgentRL-Lab 兼容 / OTel collector 推送（溯源哈希）
-ci.py         CI 门禁胶水：gate JSON → GitHub PR 评论（幂等 upsert）
-report.py     自包含 HTML 报告（内联 CSS 零外链 + 成本记账区 + per-case bootstrap CI）
-ui.py         只读本机 Web UI：runs 列表 / run 重放详情 / gate 对比（stdlib 零依赖，127.0.0.1）
-cli.py        lens demo/run/ui/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness
+```bash
+uv run lens run --version base --n-trials 5 --store-dir /tmp/demo-store
+uv run lens run --version cand --n-trials 5 --store-dir /tmp/demo-store
+uv run lens gate --store-dir /tmp/demo-store --mode block --out-json gate.json
+uv run python scripts/pr_comment.py --gate-json gate.json   # dry-render the PR comment
 ```
 
-## 核心设计
+### Evaluating your own agent
 
-1. **Store trajectory first, judge later**：轨迹按内容寻址落盘，评分是对历史轨迹的重放
-   ——换 judge 模型重判分是一等公民操作（`lens rescore`）。
-2. **双侧分布夹逼**：单次 pass@1 波动达 pp 量级；pass@k（乐观界）与 pass^k（悲观界）
-   一起报，小改进是否真实一目了然。
-3. **门禁分级**：observe 模式只报告不阻断；κ 与误杀率达标后才切 block——
-   七项前提见 `docs/judge-block-policy.md`。
-4. **评测器先过体检**：`lens meta-eval` 元评测——scorer 对已知好/坏轨迹分辨力不满分不上岗。
+Any Python callable can be the system under test — the factory returns a solver,
+the runner handles concurrency, seeds, and failure isolation:
 
-## 实测状态（2026-08-26）
+```bash
+uv run lens run --solver-spec "your_pkg.module:create_solver" \
+    --dataset tasks.jsonl --version "$(git rev-parse --short HEAD)" --n-trials 8
+```
 
-| 项 | 状态 |
+Solver contract: `create_solver() -> solve(task, trial_seed) -> (output, steps)`.
+Datasets are JSONL with `id/input/gold/required_states` (+ optional `extra`
+metadata channel that rides along into trajectories for later replay).
+
+## Judge calibration, not judge vibes
+
+An LLM judge that blocks merges must earn that power numerically:
+
+```bash
+uv run lens calibrate          # build 210-item pool + pair suite + human review page
+open calib/review.html         # j/k navigate, 1/0 adjudicate — ~30 min of human time
+uv run lens kappa-report --pool calib/pool.jsonl --labels labels.jsonl
+uv run lens rescore            # swap the judge, replay the same trajectories
+uv run lens meta-eval          # scorers must discriminate known-good/bad perfectly to serve
+```
+
+Current honest state: the judge's pre-labels agree with constructed truth on
+90.5% of the 210-item pool; position-swap consistency is 1.00 across 24 pairs;
+**κ against real human labels is still pending** — until that session happens,
+`llm_judge` stays in `observe`. That's the policy working as designed, not a gap.
+
+## Eval → RL flywheel
+
+High-quality trajectories flow out in three formats from the same store:
+
+| Format | Command | Consumer |
+|---|---|---|
+| Harbor-style rollout JSONL | `lens export --fmt harbor` | Generic RL/SFT pipelines; task-level stability filter (≥ `--min-rate`) keeps out lucky guesses |
+| AgentRL-Lab schema | `lens export --fmt agentrl` | Field-level aligned with AgentRL-Lab `rollout/schema.py`, contract-checked |
+| OTLP/JSON traces | `lens export --fmt otlp [--otel-push URL]` | Any OpenTelemetry collector (`/v1/traces`) |
+
+Every record carries its store hash — downstream consumers can verify provenance
+against the content-addressed store. See [docs/export-schema.md](docs/export-schema.md).
+
+## Measured status
+
+Honest as of 2026-08-26 — everything below is reproducible from this repo:
+
+| Area | Status |
 |---|---|
-| 离线测试 | ✅ 92 个全绿（mock-first，零网络依赖） |
-| 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；gate JSON 含 CI 噪声甄别字段；一键引导脚本 `scripts/bootstrap-remote.sh`（建仓→推送→生成 observe/block 两态演示分支），真实 PR 截图待用户跑一次 |
-| judge 校准 | 🟡 工具链完备 + 真 judge 预标注实测（swap=1.0@24 组、构造池一致率 90.5%@210 例）；**κ vs 人工待标注会话**（~30 分钟；LLM 代标彩排仅验证管线，不算数） |
-| 真实模型通路 | ✅ 实测通过：`lens smoke` 通过率 1.00、`demo --provider real` EXIT=0（OpenCode Zen free 池 · nemotron-3-ultra-free） |
-| 鲁棒性套件 | ✅ 注入用例 + utility/ASR 双指标离线实测；真实 agent 接入待外部 solver |
-| flywheel 出口 | ✅ rollout JSONL（Harbor 式）+ AgentRL-Lab 字段级对齐 + OTel collector 出口/推送；只读 Web UI `lens ui` 就绪 |
+| Offline tests | ✅ 94 passing, zero network (mock-first discipline) |
+| Gate pipeline | ✅ Injected-regression simulation blocked in `block` mode; CI-noise discrimination (`ci_overlap` 🔥 flags) wired into gate JSON |
+| Real-model path | ✅ Smoke pass-rate 1.00 through free-tier OpenAI-compatible endpoint (OpenCode Zen · nemotron-3-ultra-free) |
+| Judge pre-labels | ✅ swap-consistency 1.00 (24 pairs) · 90.5% agreement on 210 constructed items |
+| Robustness suite | ✅ Injection cases + utility/ASR metrics, offline-deterministic |
+| Human κ session | 🟡 Pending — ~30 min of human adjudication (tooling ready; agents are forbidden from faking it) |
+| Real-PR gate demo | 🟡 Live demo PRs running — screenshots land in `docs/` when green/red states confirm |
 
-## 差异化口径
+### Free-resource red line
 
-多采样统计（Inspect AI epochs）、版本 diff+CI（promptfoo）单项各有先例；
-AgentLens 的差异是把「稳定性画像 + 判定解耦重放 + judge 校准 + scorer 自检」
-打包成面向 agent 任务的一等公民门禁工作流。
+No paid APIs, ever. Real models run exclusively through free-tier
+OpenAI-compatible pools (configurable via `AGENTLENS_BASE_URL` / `AGENTLENS_MODEL`;
+keys only ever come from the `AGENTLENS_API_KEY` environment variable, never committed).
+CI runs on GitHub Actions free tier. Mock provider keeps the entire offline test
+suite deterministic and network-free.
 
-## Roadmap
+## Documentation
 
-当前进度与剩余项见 `ROADMAP.md` §3–§4。v1.0 封版条件：
-真实 PR 流程演示 observe/block 两态 + κ 校准数字落地 + 真实通路冒烟实测。
+- [ROADMAP.md](ROADMAP.md) — phase-by-phase progress, checkboxes committed alongside code
+- [AGENTS.md](AGENTS.md) — engineering conventions & invariants
+- [docs/gate-policy.md](docs/gate-policy.md) — thresholds, CI-overlap noise rule
+- [docs/judge-block-policy.md](docs/judge-block-policy.md) — the seven prerequisites before a judge may block
+- [docs/export-schema.md](docs/export-schema.md) — rollout / AgentRL / OTLP formats
+- [docs/robustness-suite.md](docs/robustness-suite.md) — injection suite design & honest limits
+
+## Methodology credits
+
+Stands on published work: Codex pass@k estimator (Chen et al.), τ-bench pass^k
+(Yao et al.), BFCL V3 state-based matching, InjecAgent injection taxonomy,
+TRAIL scorer self-checks. AgentLens's contribution is packaging these into a
+single merge-gate workflow where stability profiling, replayable judging, judge
+calibration, and scorer certification are first-class citizens.
+
+<div align="center">
+<sub>Built mock-first. Measured honestly. Blocks merges only when it has earned the right.</sub>
+</div>
