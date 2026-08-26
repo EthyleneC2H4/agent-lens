@@ -15,9 +15,9 @@
 4. 与 AgentRL-Lab 打通一次高质量轨迹导出（eval→RL flywheel 最小演示）；
 5. 全流程一键复现 + 自包含 HTML 报告。
 
-## 1. 当前状态快照（2026-08-25 执行轮收工，HEAD 见 git log）
+## 1. 当前状态快照（2026-08-26 P5 深化轮收工，HEAD 见 git log）
 
-**45 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过。**
+**67 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过。**
 Phase A/D 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件（GitHub remote、
 AGENTLENS_API_KEY、人工标注会话、AgentRL-Lab 仓库可达），见 §4 各 Phase 标注。
 
@@ -157,25 +157,36 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 | E flywheel 导出 | ✅ 出口就绪 + **AgentRL-Lab 字段级对齐完成**（2026-08-26：`export --format agentrl`，跨仓 `load_trajectories` 回读测试钉死） |
 | v1.0 tag | ⏸ 未打 | B/C 收尾后 |
 
-### 8.2 代码缺陷与待改进点（按优先级；✅ = 2026-08-26 批次已修）
+### 8.2 代码缺陷与待改进点（按优先级；✅ = 已修，标注修复批次）
 
 1. ✅ **复核页进度不持久化**：已加 localStorage 自动保存/恢复/清除
-   （`render_review_html`，刷新不丢已勾选项）。
+   （`render_review_html`，刷新不丢已勾选项）。（P2 批次）
 2. ✅ **report/ci HTML 注入风险**：`render_report`/`render_comment`/
-   `calibration.render_review_html` 全量 html.escape 与 markdown 竖线/换行转义。
-3. **gate 基线自动选择脆弱**：无显式 `--base-run` 时按 run_id 字母序取 first/last，
-   多轮评测后可能选错基线；且 CI 每 PR 双跑 mock 无基线缓存（跨 PR 复用 main store artifact 未实现）。
-4. **store 索引无 compaction**：index.jsonl append-only 无限增长；`_latest_run` 全量扫描 O(n)，
-   大 store 下 report/gate 变慢——加 run 级别索引或分段 compaction。
-5. **judge 成本未进报告**：LLMJudgeScorer.usage_totals 只活在 scorer 实例里，
-   `_group_results` 重放评分后未汇入 render_report 的成本区。
-6. **rescore / kappa-report 输出不落盘**：仅 console 表格，不可追溯不可引用——
-   补 JSONL/HTML 产物路径参数。
-7. **position-swap 是规则包装不是真 pairwise judge**：make_pair_judge 用规则 judge 包装修剪，
-   真实场景需要 LLM pairwise prompt（A/B 两候选一问一答），待接 provider 后补真通路。
-8. **export reward 只有 0/1**：无部分分数通道（如 key_state 部分命中比例）；schema 文档已预留说法。
-9. **CI 平台矩阵单一**：仅在 macOS 本机验证过，workflow 的 ubuntu 路径未真实跑过一次（随 remote 解锁）。
-10. **calibrate 复核页无键盘快捷键/自动跳焦**：210 例裁决的人机效率还能再压（nice-to-have）。
+   `calibration.render_review_html` 全量 html.escape 与 markdown 竖线/换行转义。（P2 批次）
+3. ✅ **gate 基线自动选择脆弱**：默认基线改按 run「创建序」取首/末
+   （store.list_runs() 的 seq），字母序陷阱消除；自动选择时 console 回显所选 id、
+   out_json 增加 `baseline_auto` 字段；新增 `lens runs` 枚举全部 run。
+   ——遗留：CI 每 PR 双跑 mock 无基线缓存（跨 PR 复用 main store artifact），
+   随 remote 解锁后一并考虑。（P5 批次 e77fc1a）
+4. ✅ **store 索引无 compaction**：新增 run 级二级索引（runs/*.json 哈希清单 +
+   runs_manifest.json 元信息），`list_by_run` 只读本 run 清单不再全量扫 index；
+   旧式库首次访问懒重建自愈；写路径进程内锁保护并发 put 一致性（有测试钉死）。
+   ——诚实边界：锁是进程内的，跨进程并发写同一 store 不在保证范围。（P5 批次 1c46828）
+5. ✅ **judge 成本未进报告**：`_group_results` 对 LLMJudgeScorer 返回 usage_totals，
+   render_report 成本区 judge 与 agent 分行呈现不混算；`lens report --scorer llm_judge`
+   可选重放口径；顺修 mock 回退路径不计账缺口 + 空结果渲染守卫。（P5 批次 8f6fa98）
+6. ✅ **rescore / kappa-report 输出不落盘**：两命令均增 `--out-json`
+   （重判分 κ/一致率/翻转清单；κ 报告 dict 含混淆矩阵/CI/长度偏置/swap）。（P5 批次 1302e61）
+7. ✅ **position-swap 是规则包装不是真 pairwise judge**：`make_llm_pair_judge`
+   单 prompt 同看 A/B 双候选；MockProvider 增 pairwise 数值接近度分支保证离线
+   确定性测试；`kappa-report --pair-mode llm` 接通（真实 LLM 待 key）。（P5 批次 eb819e9）
+8. ✅ **export reward 只有 0/1**：可选字段 `reward_detail.key_state_fraction`
+   （required_states 命中比例）；顺修 runner 未把 required_states 写进轨迹 metadata
+   的丢失缺陷（此前 key_state 判定事后无法重放）。schema 文档同步。（P5 批次 4b6c45c）
+9. **CI 平台矩阵单一**：仅在 macOS 本机验证过，workflow 的 ubuntu 路径未真实跑过一次
+   （随 remote 解锁）。——外部依赖，保持未勾。
+10. ✅ **calibrate 复核页无键盘快捷键/自动跳焦**：j/k 移动、1/0 裁决并 advance、
+    当前项高亮 + scrollIntoView 居中、「第 x/N 例」位置指示。（P5 批次 146b7c4）
 
-> 快赢排序：~~#1、#2~~ 已完成；#3–#6 属于「第一次真实使用就会撞上」的债，
-> 建议在 P5 联调消费 agentrl 格式数据时一并处理。
+> P5 深化轮收工（2026-08-26）：十项中八项已修（#9 卡 remote 为唯一遗留）；
+> 新发现的债随修复记录在各条目的「遗留/诚实边界」注记里。

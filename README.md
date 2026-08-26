@@ -19,7 +19,7 @@ uv run lens demo          # 两版本对比评测 → pass 分布 → HTML 报�
 ```
 provider.py   mock-first LLM 接入：ChatResult token 记账、指数退避重试（transport 可注入）
 runner.py     dataset × n-trials 并发矩阵；失败分类隔离（网络错 vs 任务错）；RunSummary 显式统计
-store.py      ★ 内容寻址轨迹库（两级 sha256）：同内容去重、judge 可重放重判分
+store.py      ★ 内容寻址轨迹库（两级 sha256 + run 级二级索引）：同内容去重、judge 可重放重判分
 scorers.py    exact_match（数值容差）/ key_state（BFCL V3 state-based mini）/ llm_judge
 metrics.py    pass@k 无偏估计器（Codex）/ pass^k（tau-bench 悲观界）/ bootstrap CI
 regression.py 版本 case 级 diff + GatePolicy{observe, block}
@@ -30,7 +30,7 @@ trace_analyzer.py 失败轨迹模式聚类：工具错 / 格式近似错 / 规�
 export.py     Harbor 式 rollout JSONL 导出（eval→RL flywheel 出口，带溯源哈希）
 ci.py         CI 门禁胶水：gate JSON → GitHub PR 评论（幂等 upsert）
 report.py     自包含 HTML 报告（内联 CSS 零外链 + 成本记账区）
-cli.py        lens demo/run/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export
+cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export
 ```
 
 ## 核心设计
@@ -43,11 +43,11 @@ cli.py        lens demo/run/report/gate/smoke/calibrate/kappa-report/rescore/met
    七项前提见 `docs/judge-block-policy.md`。
 4. **评测器先过体检**：`lens meta-eval` 元评测——scorer 对已知好/坏轨迹分辨力不满分不上岗。
 
-## 实测状态（2026-08-25）
+## 实测状态（2026-08-26）
 
 | 项 | 状态 |
 |---|---|
-| 离线测试 | ✅ 45 个全绿（mock-first，零网络依赖） |
+| 离线测试 | ✅ 67 个全绿（mock-first，零网络依赖） |
 | 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；GitHub Action workflow 就绪 |
 | judge 校准 | 🟡 工具链完备（池/分层/复核页/κ 手算验证）；**κ 数字待人工标注会话**（~30 分钟） |
 | 真实模型通路 | 🟡 `lens smoke` 就绪；待配置 `AGENTLENS_API_KEY`（NVIDIA 免费端点）后实测 |
