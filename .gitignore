@@ -11,6 +11,7 @@ build/
 # 评测产物
 .lensstore/
 reports/*.html
+calib/
 
 .idea/
 .vscode/

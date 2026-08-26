@@ -18,7 +18,7 @@ uv run ruff check .          # lint（line-length=100，select E/F/I/W）
 uv run lens demo             # 端到端演示：两版本评测→报告→门禁（必须 EXIT=0）
 ```
 
-CLI 子命令（Typer）：`demo / run / runs / report / gate / smoke / calibrate / kappa-report / rescore / meta-eval / analyze / export / robustness`。
+CLI 子命令（Typer）：`demo / run / ui / runs / report / gate / smoke / calibrate / kappa-report / rescore / meta-eval / analyze / export / robustness`。
 
 本地门禁模拟（无需 GitHub，见 docs/gate-policy.md §5）：
 
@@ -80,9 +80,9 @@ report.py（自包含 HTML，内联 CSS 零外链）／ ci.py（gate JSON → Gi
 
 ## 当前状态与已知债
 
-- 83 个离线测试全绿；Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
-- 未竟项均卡外部条件：git remote（真实 PR 门禁演示）、人工标注会话（~30 分钟，产出 κ vs 人工数字；真 judge 预标注已实测 swap=1.0 / 一致率 90.5%）。
+- 92 个离线测试全绿；Phase A/D/F 完成，B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
+- 未竟项均卡用户动作：`scripts/bootstrap-remote.sh` 一键建仓推送 + 开两个演示 PR（真实门禁演示截图）；人工标注会话（~30 分钟，产出 κ vs 人工数字；硬约束 3 不许 LLM 代劳——LLM 代标仅可作管线彩排，不得回填决策数字）。
 - v1.0 tag 待 B/C 收尾后再打。ROADMAP §8.2 技术债清单已全部闭环
-  （2026-08-26 P5+P6 批次；唯一外部遗留 #9 ubuntu CI 实跑卡 remote）。
+  （唯一外部遗留 #9 ubuntu CI 实跑随引导脚本一并解锁）。
 - 数据集 JSONL 支持 `extra` 字段（任意元数据随轨迹落盘至 `metadata.extra`，
   事后重放任意 scorer 口径的传输通道）。

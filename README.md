@@ -10,7 +10,7 @@ Agent 回归评测门禁与稳定性度量平台（v0.9-rc）。回答一个问�
 
 ```bash
 uv sync
-uv run pytest -q          # 45 个离线确定性测试
+uv run pytest -q          # 92 个离线确定性测试
 uv run lens demo          # 两版本对比评测 → pass 分布 → HTML 报告 → observe/block 双模式门禁
 ```
 
@@ -28,10 +28,11 @@ calibration.py ★ 校准闭环：210 例构造式已知答案池 → 预标注�
 meta_eval.py  TRAIL 式自检：scorer 对已知好/坏轨迹的分辨力满分才允许上岗
 trace_analyzer.py 失败轨迹模式聚类：工具错 / 格式近似错 / 规划错 / 空输出
 robustness.py 对抗鲁棒性套件：InjecAgent 式注入用例 + utility/ASR 双指标（docs/robustness-suite.md）
-export.py     Harbor 式 rollout JSONL 导出（eval→RL flywheel 出口，带溯源哈希）
+export.py     rollout 导出：Harbor 式 JSONL / AgentRL-Lab 兼容 / OTel collector 推送（溯源哈希）
 ci.py         CI 门禁胶水：gate JSON → GitHub PR 评论（幂等 upsert）
 report.py     自包含 HTML 报告（内联 CSS 零外链 + 成本记账区 + per-case bootstrap CI）
-cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness
+ui.py         只读本机 Web UI：runs 列表 / run 重放详情 / gate 对比（stdlib 零依赖，127.0.0.1）
+cli.py        lens demo/run/ui/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness
 ```
 
 ## 核心设计
@@ -48,12 +49,12 @@ cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescor
 
 | 项 | 状态 |
 |---|---|
-| 离线测试 | ✅ 83 个全绿（mock-first，零网络依赖） |
-| 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；gate JSON 含 CI 噪声甄别字段；GitHub Action workflow 就绪 |
-| judge 校准 | 🟡 工具链完备 + 真 judge 预标注实测（swap=1.0@24 组、构造池一致率 90.5%@210 例）；**κ vs 人工待标注会话**（~30 分钟） |
+| 离线测试 | ✅ 92 个全绿（mock-first，零网络依赖） |
+| 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；gate JSON 含 CI 噪声甄别字段；一键引导脚本 `scripts/bootstrap-remote.sh`（建仓→推送→生成 observe/block 两态演示分支），真实 PR 截图待用户跑一次 |
+| judge 校准 | 🟡 工具链完备 + 真 judge 预标注实测（swap=1.0@24 组、构造池一致率 90.5%@210 例）；**κ vs 人工待标注会话**（~30 分钟；LLM 代标彩排仅验证管线，不算数） |
 | 真实模型通路 | ✅ 实测通过：`lens smoke` 通过率 1.00、`demo --provider real` EXIT=0（OpenCode Zen free 池 · nemotron-3-ultra-free） |
 | 鲁棒性套件 | ✅ 注入用例 + utility/ASR 双指标离线实测；真实 agent 接入待外部 solver |
-| flywheel 出口 | ✅ rollout JSONL 导出+回读校验；与 AgentRL-Lab 字段级对齐 pending |
+| flywheel 出口 | ✅ rollout JSONL（Harbor 式）+ AgentRL-Lab 字段级对齐 + OTel collector 出口/推送；只读 Web UI `lens ui` 就绪 |
 
 ## 差异化口径
 

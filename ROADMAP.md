@@ -15,10 +15,10 @@
 4. 与 AgentRL-Lab 打通一次高质量轨迹导出（eval→RL flywheel 最小演示）；
 5. 全流程一键复现 + 自包含 HTML 报告。
 
-## 1. 当前状态快照（2026-08-26 P6 批次 + 真通路实测收工，HEAD 见 git log）
+## 1. 当前状态快照（2026-08-26 P7 批次收工，HEAD 见 git log）
 
-**83 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过；真端点冒烟通过率 1.00。**
-Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪——剩余未勾项均需外部条件
+**92 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过；真端点冒烟通过率 1.00。**
+Phase A/D/F 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件
 （GitHub remote、人工标注会话），见 §4 各 Phase 标注。
 
 | 模块 | 内容 | 状态 |
@@ -34,10 +34,11 @@ Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪—�
 | `meta_eval.py` | TRAIL 式 scorer 自检元评测（分辨力满分才上岗） | ✅ 新增 |
 | `trace_analyzer.py` | 失败轨迹模式聚类（工具/格式/规划/空输出） | ✅ 新增 |
 | `robustness.py` | 对抗鲁棒性套件（注入用例 / SecurityScorer 入元体检 / utility+ASR 双指标） | ✅ 新增（P6） |
-| `export.py` | Harbor 式 rollout 导出（溯源哈希 + 回读校验） | ✅ 新增 |
+| `export.py` | rollout 导出（Harbor 式溯源哈希 + AgentRL-Lab 对齐 + OTLP/JSON 出口与 collector 推送） | ✅ 新增（OTel 为 P7） |
 | `ci.py` | gate JSON → GitHub PR 评论渲染与幂等 upsert | ✅ 新增 |
 | `report.py` | 自包含 HTML 报告（内联 CSS 零外链 + 成本记账区 + per-case CI 列） | ✅ |
-| `cli.py` | demo/run/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness | ✅ |
+| `ui.py` | 只读本机 Web UI：runs 列表 / run 重放详情 / gate 对比（stdlib 零依赖，127.0.0.1） | ✅ 新增（P7） |
+| `cli.py` | demo/run/ui/runs/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness | ✅ |
 
 **Mock 边界诚实清单**：
 - MockProvider 是默认 provider：离线测试与 CI 的 demo 数字全部来自脚本化假模型；
@@ -69,7 +70,7 @@ Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪—�
 | C | judge 校准闭环扩容 | A | ¥0 | 🟡 工具链完备，κ 待人工标注会话 |
 | D | TRAIL 自检 runner + trace_analyzer | C | ¥0 | ✅ 完成（12413ca） |
 | E | flywheel 导出 + v1.0 封版 | B, C | ¥0 | 🟡 出口就绪，封版待 B/C 收尾 |
-| F | 可选深化 | E | ¥0 | 🟡 鲁棒性套件完成（2825089），OTel/Web UI 未开始 |
+| F | 可选深化 | E | ¥0 | ✅ 完成（鲁棒性 2825089；OTel d81596f / Web UI 7ffe862 为 P7 批次） |
 
 ## 4. 各 Phase 详情
 
@@ -90,7 +91,10 @@ Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪—�
 - [x] 门禁阈值规则文档化：`docs/gate-policy.md`（case 计数主规则 + CI 非重叠噪声甄别 + observe→block 前提链接）
 - [x] `--solver-spec` 动态加载被评 solver（CI 接入任意 Python 仓库的评测对象）
 - [x] 本地全流程模拟：注入退化版本（0.8→0.2）被 block 拦截 + 评论渲染契约测试
-- [ ] **陌生 PR 触发评测的实录演示（含截图入 docs/）**——本仓库当前无 remote，推送后一次补齐
+- [x] 一键引导脚本 `scripts/bootstrap-remote.sh`（P7）：gh 自动建仓或打印手工路径 →
+  推 main → 自动生成 demo/regressed-observe / demo/regressed-block 两个演示分支
+  （cand 切换恒错 solver 制造真回归；workflow 补丁经真实文件干跑验证）（9e272c1）
+- [ ] **陌生 PR 触发评测的实录演示（含截图入 docs/）**——跑一次引导脚本 + 开两个 PR 即可补齐
 **DoD**：本地模拟等价测试通过；真实 PR 流程项保持未勾。
 
 ### Phase C：judge 校准闭环扩容（本项目最重的差异化证据）——🟡 工具链完备（f40c5e7），κ 数字待人工标注
@@ -114,14 +118,22 @@ Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪—�
 - [ ] `git tag v1.0`——封版条件（B 真实 PR 演示 + C κ 数字）满足后再打
 **DoD**：飞轮出口侧完成；跨仓闭环演示待 AgentRL-Lab 可达。
 
-### Phase F：可选深化——🟡 首项完成（P6 批次）
+### Phase F：可选深化——✅ 完成（P6 鲁棒性 + P7 OTel/Web UI）
 - [x] 对抗鲁棒性评测套件：InjecAgent 式 tool-output injection 用例（4 类受控攻击，
   构造真值自洽）+ utility/ASR 双指标 + `lens robustness`（HTML/JSON 产物、
   `--max-asr` block 语义）；SecurityScorer 入 meta-eval 元体检；
   Task.extra 通用元数据落盘通道。规则文档 `docs/robustness-suite.md`
   （含诚实边界：marker 判别是启发式，LLM security judge 须走 κ 校准）。（2825089）
-- [ ] OTel collector 兼容导出端点
-- [ ] Web UI（非必需——CLI+HTML 报告已覆盖核心流）
+- [x] OTel collector 兼容导出端点：`lens export --fmt otlp` 产出 OTLP/JSON
+  resourceSpans 文档（内容寻址派生确定性 traceId/spanId；占位时间如实标注）+
+  `--otel-push` 直推 `/v1/traces`。映射表见 docs/export-schema.md。（d81596f，P7）
+- [x] Web UI：`lens ui` 只读本机视图（stdlib 零依赖，默认 127.0.0.1:8517，
+  GET-only 全量转义）——runs 列表 / run 重放详情 / gate 对比三视图；
+  渲染逻辑纯函数离线测试。（7ffe862，P7）
+
+顺带（P7）：真实 PR 门禁演示的最后一公里压成一键——`scripts/bootstrap-remote.sh`
+（gh 建仓或打印手工路径 → 推 main → 自动生成 demo/regressed-observe 与
+demo/regressed-block 两个演示分支，cand 切换恒错 solver 制造真回归）。
 
 **DoD**（首项）：套件确定性可复现；双指标手算用例钉死；离线端到端 EXIT 语义正确。
 真实被测 agent 的实测数字待外部 solver 接入（`--solver-spec` 已就绪）。
@@ -152,7 +164,7 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 
 ## 7. 新会话上手清单
 
-1. `cd agent-lens && uv sync && uv run pytest -q && uv run lens demo` —— 确认基线全绿（45 tests / EXIT=0）；
+1. `cd agent-lens && uv sync && uv run pytest -q && uv run lens demo` —— 确认基线全绿（当前 92 tests / EXIT=0）；
 2. 通读 `AGENTS.md` 与本文 §1–§2；
 3. `git log --oneline` + 本文勾选状态 ⇒ 定位当前 Phase；
 4. 从第一个未完成 Phase 开工；涉及真实 API key 时向用户确认环境变量已配置；
@@ -165,10 +177,11 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 | Phase | 状态 | 缺的外部条件 |
 |---|---|---|
 | A 真实通路加固 | ✅ 完成 + ✅ 真端点实测（2026-08-26：smoke 1.00 / demo real EXIT=0 / transport 双缺陷修复） | — |
-| B GitHub Action 门禁 | 🟡 工具链就绪 | git remote（推送后补真实 PR 演示截图） |
-| C judge 校准闭环 | 🟡 工具链完备；真 judge 预标注实测落地（swap=1.0@24 组、构造池一致率 90.5%@210 例） | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳——κ vs 人工仍无数字） |
+| B GitHub Action 门禁 | 🟡 工具链就绪 + 一键引导脚本（`scripts/bootstrap-remote.sh`：建仓→推送→生成 observe/block 两态演示分支） | git remote（跑一次脚本 + 开两个 PR 截图即闭环） |
+| C judge 校准闭环 | 🟡 工具链完备；真 judge 预标注实测落地（swap=1.0@24 组、构造池一致率 90.5%@210 例）；LLM 代标全链路彩排通过（见 §8.3） | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳——κ vs 人工仍无数字） |
 | D TRAIL 自检 + trace_analyzer | ✅ 完成 | — |
-| E flywheel 导出 | ✅ 出口就绪 + **AgentRL-Lab 字段级对齐完成**（2026-08-26：`export --format agentrl`，跨仓 `load_trajectories` 回读测试钉死） |
+| E flywheel 导出 | ✅ 出口就绪 + **AgentRL-Lab 字段级对齐完成**（2026-08-26：`export --format agentrl`，跨仓 `load_trajectories` 回读测试钉死）+ OTel collector 出口（P7） |
+| F 可选深化 | ✅ 完成（P6 鲁棒性套件；P7 OTel 导出 + 只读 Web UI） | — |
 | v1.0 tag | ⏸ 未打 | B/C 收尾后 |
 
 ### 8.2 代码缺陷与待改进点（按优先级；✅ = 已修，标注修复批次）
@@ -211,3 +224,21 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 > P6 批次收工（2026-08-26）：#11/#12 为「文档承诺未兑现」类缺口的清理；
 > 同批次落地 Phase F 首项对抗鲁棒性套件。§8.2 清单至此全部闭环
 > （唯一外部遗留仍是 #9 的 ubuntu CI 实跑）。
+
+### 8.3 P7 批次（2026-08-26 收官）与 LLM 代标彩排的诚实边界
+
+P7 落地：OTel 导出端点（d81596f）、只读 Web UI（7ffe862）、remote 一键引导 +
+退化演示 solver（9e272c1）。至此 agent 可做项全部做完，剩余两项均卡用户动作：
+①跑 `scripts/bootstrap-remote.sh` 开两个演示 PR；②~30 分钟人工标注会话。
+
+**LLM 代标彩排 ≠ 人工标注**：应「不想人工标注」的诉求，用真实端点对校准池做了
+一次独立 LLM 代标全链路彩排（类别均衡抽样 21 例，45 秒跑完，产物只落 /tmp
+不入库），验证了 labels.jsonl 契约 → kappa-report → HTML 报告的下游通路
+（实测 judge-vs-LLM代标 κ=0.4474——恰好证明 LLM 与规则 judge 分歧不小，
+更不能拿它冒充人类标准）。该数字是「LLM vs 规则 judge」，不是「judge vs 人」
+——循环论证，不满足切 block 前提，不回填任何决策文档，Phase C 勾选项保持未勾
+（硬约束 3）。
+
+**环境坑（本机）**：macOS 系统代理指向 127.0.0.1:7890 但代理进程时有时无——
+urllib 会读系统代理导致真端点请求被黑洞式拖慢（curl 不受影响，故探测正常而
+Python 卡死）。复现时用 `NO_PROXY='*' uv run lens smoke` 绕过或确保代理存活。
