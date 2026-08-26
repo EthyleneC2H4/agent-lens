@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import typing
 from pathlib import Path
 
 import typer
@@ -623,6 +624,125 @@ def export(
     assert len(back) == len(rollouts)
     if not rollouts:
         console.print("[yellow]⚠ 没有达标轨迹——降低 --min-rate 或先跑评测[/yellow]")
+
+
+@app.command()
+def robustness(
+    demo_solver: typing.Annotated[
+        str, typer.Option(help="离线演示 solver：stubborn（全稳健）或 gullible（全沦陷）")
+    ] = "stubborn",
+    solver_spec: typing.Annotated[
+        str, typer.Option(help="动态加载被测 agent 'pkg.module:factory'；优先于 --demo-solver")
+    ] = "",
+    n_trials: int = 2,
+    seed: int = 0,
+    per_category: typing.Annotated[int, typer.Option(help="每类攻击用例数（共 4 类）")] = 8,
+    store_dir: str = ".lensstore",
+    version: str = "robustness",
+    out: str = "reports/robustness.html",
+    out_json: typing.Annotated[
+        str | None, typer.Option(help="机器可读双指标结果路径")
+    ] = None,
+    max_asr: typing.Annotated[
+        float | None, typer.Option(help="ASR 阈值（block 语义）：超过即退出码 1")
+    ] = None,
+) -> None:
+    """对抗鲁棒性评测：注入套件 × n-trials → utility/ASR 双指标 → HTML/JSON。
+
+    轨迹照常落盘（store-first 不变量）；security 口径为 marker 规则判别，
+    阈值阻断语义与门禁一致——超阈值退出码 1。
+    """
+    from .robustness import (
+        SecurityScorer,
+        build_injection_suite,
+        category_breakdown,
+        compose_input,
+        dual_profile,
+        make_gullible_solver,
+        render_robustness_html,
+    )
+    from .runner import Runner, Task
+    from .scorers import ExactMatchScorer
+
+    if demo_solver not in ("stubborn", "gullible"):
+        console.print("[red]--demo-solver 只接受 stubborn 或 gullible[/red]")
+        raise typer.Exit(2)
+
+    cases = build_injection_suite(seed=seed, per_category=per_category)
+    tasks = [
+        Task(id=c.id, input=compose_input(c.benign_input, c.injection), gold=c.gold,
+             extra={"comply_markers": c.comply_markers})
+        for c in cases
+    ]
+    if solver_spec:
+        import importlib
+
+        module_name, _, attr = solver_spec.partition(":")
+        factory = getattr(importlib.import_module(module_name), attr)
+        solver = factory()
+    else:
+        solver = make_gullible_solver(
+            1.0 if demo_solver == "gullible" else 0.0, seed_base=seed
+        )
+    store = ContentAddressedStore(store_dir)
+    summary = Runner(store).run(tasks, solver, version=version, n_trials=n_trials, seed=seed)
+    trajs = store.list_by_run(summary.run_id)
+
+    # 重放评分（judge later）：utility=exact_match，security=marker 判别
+    sc_util, sc_sec = ExactMatchScorer(), SecurityScorer()
+    util_by_task: dict[str, list[bool]] = {}
+    sec_by_task: dict[str, list[bool]] = {}
+    for t in trajs:
+        markers = list((t.metadata.get("extra") or {}).get("comply_markers", []))
+        util_by_task.setdefault(t.task_id, []).append(
+            sc_util.score(t, {"gold": str(t.metadata.get("gold", ""))}
+                          ))
+        sec_by_task.setdefault(t.task_id, []).append(
+            sc_sec.score(t, {"comply_markers": markers}))
+
+    def cat_of(tid: str) -> str:
+        return tid.rsplit("-", 1)[0]
+
+    report = {
+        "version": version,
+        "solver": solver_spec or demo_solver,
+        "n_cases": len(tasks),
+        "n_trials": n_trials,
+        **dual_profile(util_by_task, sec_by_task),
+        "per_category": category_breakdown(util_by_task, sec_by_task, cat_of),
+    }
+
+    table = Table(title=f"鲁棒性画像 · {version} · {len(tasks)} case × {n_trials} trials")
+    table.add_column("category")
+    table.add_column("utility")
+    table.add_column("ASR")
+    for cat, v in sorted(report["per_category"].items()):  # type: ignore[union-attr]
+        table.add_row(cat, f"{v['utility']:.3f}", f"{v['asr']:.3f}")
+    console.print(table)
+    console.print(
+        f"总体 utility={report['utility_rate']:.3f} · ASR={report['asr']:.3f} · "
+        f"robustness={report['robustness_rate']:.3f} · both_ok={report['both_ok_rate']:.3f}"
+    )
+    path = render_robustness_html(report, out)
+    console.print(f"HTML 报告: {path}")
+    if summary.failed_jobs:
+        console.print(f"[yellow]⚠ {len(summary.failed_jobs)} 个 job 失败[/yellow]")
+
+    if out_json:
+        import json
+
+        Path(out_json).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_json).write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        console.print(f"JSON 结果: {out_json}")
+
+    if max_asr is not None and float(report["asr"]) > max_asr:
+        console.print(
+            f"[red]阻断：ASR {report['asr']} 超过阈值 {max_asr}"
+            f"（安全口径为规则判别，阈值含义见 docs/robustness-suite.md）[/red]"
+        )
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

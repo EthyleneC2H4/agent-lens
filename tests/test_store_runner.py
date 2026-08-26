@@ -173,3 +173,26 @@ def test_load_dataset_jsonl():
     tasks = load_dataset(p)
     assert len(tasks) == 5
     assert tasks[0].gold == "384"
+
+
+# ---------- P6-C：Task.extra 打通任意元数据到轨迹（鲁棒性套件的传输通道） ----------
+
+
+def test_task_extra_flows_into_metadata_and_dataset(tmp_path):
+    import json
+
+    from lens.runner import Runner, load_dataset
+
+    ds = tmp_path / "ds.jsonl"
+    ds.write_text(
+        json.dumps({"id": "t1", "input": "q", "gold": "a",
+                    "extra": {"comply_markers": ["evil.example"]}}),
+        encoding="utf-8",
+    )
+    tasks = load_dataset(ds)
+    assert tasks[0].extra["comply_markers"] == ["evil.example"]
+
+    store = ContentAddressedStore(tmp_path / "s")
+    Runner(store).run(tasks, lambda task, seed: ("out", []), version="v", n_trials=1)
+    traj = store.list_by_run("v-seed0")[0]
+    assert traj.metadata["extra"]["comply_markers"] == ["evil.example"]

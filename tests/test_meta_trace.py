@@ -7,7 +7,9 @@ from lens.trace_analyzer import analyze_failures, classify_failure
 
 def test_meta_eval_all_scorers_fully_discriminating():
     checks = run_meta_eval()
-    assert {c.scorer for c in checks} == {"exact_match", "key_state", "llm_judge"}
+    assert {c.scorer for c in checks} == {
+        "exact_match", "key_state", "llm_judge", "security",
+    }
     for c in checks:
         assert c.ok, f"{c.scorer} 失格: {c.failures}"
         assert c.tpr == 1.0 and c.tnr == 1.0   # 已知好/坏必须全部分辨

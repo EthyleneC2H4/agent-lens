@@ -22,6 +22,7 @@ class Task(BaseModel):
     input: str
     gold: str = ""
     required_states: list[str] = []
+    extra: dict[str, object] = {}   # 任意元数据随轨迹落盘（如鲁棒性套件的 comply_markers）
 
 
 def load_dataset(path: str | Path) -> list[Task]:
@@ -144,6 +145,7 @@ class Runner:
                     "gold": task.gold,
                     "input": task.input,
                     "required_states": task.required_states,   # 事后重放 key_state 判定的前提
+                    "extra": dict(task.extra),   # 嵌套避免与标准键冲突；事后重放任意口径的前提
                 },
             )
             self.store.put(traj)
