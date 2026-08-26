@@ -43,3 +43,32 @@
   （预期差异点：`task.input` vs 其 prompt/messages 结构、reward 是否要求分段）；
 - 最小闭环演示：`lens run → lens export → load_jsonl_rollouts 回读`
   （测试见 `tests/test_export.py::test_rollout_schema_roundtrip`）。
+
+## OTel collector 兼容出口（OTLP/JSON traces）
+
+`lens export --fmt otlp` 把一个 run 的全部轨迹渲染为 OTLP/JSON
+（`resourceSpans → scopeSpans → spans`），可被 OpenTelemetry Collector 的
+`/v1/traces` HTTP 端点直收，也可落盘后用任意 OTLP 解析工具消费：
+
+```bash
+uv run lens export --store-dir .lensstore --fmt otlp --out traces.otlp.json
+uv run lens export --store-dir .lensstore --fmt otlp \
+    --otel-push http://127.0.0.1:4318/v1/traces   # 推送失败 exit 1
+```
+
+映射规则与诚实边界：
+
+| 项 | 值 |
+|---|---|
+| 粒度 | 一条轨迹 = 一个 span（`SPAN_KIND_INTERNAL`） |
+| traceId/spanId | `sha256("{run_id}:{task_id}:{trial}")` 前/中段截取——确定性可复现 |
+| span name | task_id |
+| startTimeUnixNano | **占位值**：trial 序号 × 1e9——轨迹库不存墙钟时间，只保证单调稳定，不是真实时刻 |
+| endTimeUnixNano | start + max(1, tokens) 毫秒级推导（同样非墙钟） |
+| attributes | `lens.task_id / run_id / version / trial(int) / pass(bool) / gold / tokens(int) / model` |
+| status | 重放评分通过 → `STATUS_CODE_OK`；否则 `ERROR` + message「scorer 判定失败」 |
+| resource | `service.name=agent-lens`；scope 名 `lens.export` |
+
+- 判定走重放评分（judge later 不变量），与 rollout 出口同一口径；
+- intValue 按 OTLP JSON 规范编码为字符串；
+- 推送显式带 User-Agent（网关 bot 防护教训），网络失败不抛出、返回原因由 CLI 决定退出码。

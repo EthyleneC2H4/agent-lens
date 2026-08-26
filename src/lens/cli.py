@@ -598,19 +598,45 @@ def export(
     run_id: str = "",
     min_rate: float = typer.Option(0.75, help="任务级通过率下限（稳定答对才导出）"),
     out: str = "rollouts.jsonl",
-    fmt: str = typer.Option("harbor", help="harbor 或 agentrl（AgentRL-Lab SFT 兼容格式）"),
+    fmt: str = typer.Option(
+        "harbor", help="harbor / agentrl（AgentRL-Lab 兼容）/ otlp（OTel collector 兼容）"
+    ),
+    otel_push: typing.Annotated[
+        str | None, typer.Option(help="OTLP 推送目标（如 http://127.0.0.1:4318/v1/traces）")
+    ] = None,
 ) -> None:
     """导出高质量轨迹为 rollout JSONL（eval→RL flywheel 出口）。"""
     from .export import (
         export_agentrl_format,
         export_rollouts,
         load_jsonl_rollouts,
+        push_to_collector,
+        to_otlp_document,
         write_jsonl,
     )
     from .scorers import ExactMatchScorer
 
     store = ContentAddressedStore(store_dir)
     rid = run_id or _latest_run_id(store)
+    if fmt == "otlp":
+        import json
+
+        doc = to_otlp_document(store, rid, ExactMatchScorer())
+        out_path = Path(out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        n_spans = len(doc["resourceSpans"][0]["scopeSpans"][0]["spans"])  # type: ignore[union-attr,index]
+        console.print(f"run={rid}: {n_spans} 条轨迹 → OTLP JSON 已写出: {out_path}")
+        if otel_push:
+            ok, msg = push_to_collector(doc, otel_push)
+            if ok:
+                console.print(f"[green]已推送到 collector: {otel_push}（{msg}）[/green]")
+            else:
+                console.print(f"[red]collector 推送失败: {msg}[/red]")
+                raise typer.Exit(1)
+        return
     rollouts, per_task = export_rollouts(store, rid, ExactMatchScorer(), min_rate)
     if fmt == "agentrl":
         rollouts = export_agentrl_format(rollouts)

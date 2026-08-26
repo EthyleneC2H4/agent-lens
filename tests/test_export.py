@@ -137,3 +137,109 @@ def test_agentrl_cross_repo_roundtrip(tmp_path):
     assert trajs[0].total_reward == 1.0
     assert trajs[0].actions()[-1] == "42"
     assert trajs[0].rewards() == [0.0, 0.0, 1.0]    # 两步过程 + 终步
+
+
+# ---------- P7：OTel collector 兼容出口（OTLP JSON traces） ----------
+
+
+def _store_two_tasks(tmp_path):
+    """t1 恒答对 / t2 恒答错，各 2 trials。"""
+    from lens.runner import Runner, Task
+    from lens.store import ContentAddressedStore
+
+    tasks = [Task(id="t1", input="q1", gold="384"), Task(id="t2", input="q2", gold="x")]
+    store = ContentAddressedStore(tmp_path / "s")
+
+    def solver(task, seed):
+        return ("384", ["step"]) if task.id == "t1" else ("wrong", [])
+
+    Runner(store).run(tasks, solver, version="v1", n_trials=2)
+    return store, "v1-seed0"
+
+
+def test_otlp_document_structure_and_determinism(tmp_path):
+    from lens.export import to_otlp_document
+    from lens.scorers import ExactMatchScorer
+
+    store, run_id = _store_two_tasks(tmp_path)
+    doc1 = to_otlp_document(store, run_id, ExactMatchScorer())
+    assert doc1 == to_otlp_document(store, run_id, ExactMatchScorer())   # 确定性可复现
+
+    rs = doc1["resourceSpans"][0]
+    res_attrs = {a["key"]: a["value"] for a in rs["resource"]["attributes"]}
+    assert res_attrs["service.name"]["stringValue"] == "agent-lens"
+    scope = rs["scopeSpans"][0]
+    assert scope["scope"]["name"] == "lens.export"
+
+    spans = scope["spans"]
+    assert len(spans) == 4                                    # 2 task × 2 trials
+    by_name: dict[str, set[str]] = {}
+    for sp in spans:
+        assert len(sp["traceId"]) == 32 and len(sp["spanId"]) == 16
+        int(sp["traceId"], 16), int(sp["spanId"], 16)         # hex 合法
+        assert sp["kind"] == "SPAN_KIND_INTERNAL"
+        assert {a["key"] for a in sp["attributes"]} >= {
+            "lens.task_id", "lens.version", "lens.trial", "lens.pass", "lens.gold",
+        }
+        by_name.setdefault(sp["name"], set()).add(sp["status"]["code"])
+    assert by_name["t1"] == {"STATUS_CODE_OK"}                # 恒对 → OK
+    assert by_name["t2"] == {"STATUS_CODE_ERROR"}             # 恒错 → ERROR
+
+
+def test_otel_push_posts_json_with_explicit_ua(monkeypatch, tmp_path):
+    """collector 推送：POST JSON、带显式 UA（bot 防护教训）、成功码 200/202。"""
+    import urllib.request
+
+    import lens.export as ex
+
+    captured: dict = {}
+
+    class _Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["headers"] = {k.lower(): v for k, v in req.headers.items()}
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    ok, msg = ex.push_to_collector({"resourceSpans": []}, "http://127.0.0.1:4318/v1/traces")
+    assert ok and msg == "HTTP 200"
+    assert captured["url"].endswith("/v1/traces") and captured["method"] == "POST"
+    assert "python-urllib" not in captured["headers"].get("user-agent", "")
+    assert captured["headers"].get("content-type") == "application/json"
+
+
+def test_cli_export_otlp_writes_file(tmp_path):
+    """lens export --fmt otlp：产物为合法 OTLP JSON 且 span 数与轨迹数一致。"""
+    import json as _json
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    env = {**__import__("os").environ, "PYTHONPATH": str(root / "src")}
+    store_dir = tmp_path / "store"
+    ds = root / "src" / "lens" / "fixtures" / "demo_dataset.jsonl"
+
+    def run(args):
+        return subprocess.run(
+            [sys.executable, "-m", "lens.cli"] + args,
+            capture_output=True, text=True, env=env, cwd=tmp_path,
+        )
+
+    assert run(["run", "--dataset", str(ds), "--version", "v1",
+                "--n-trials", "2", "--store-dir", str(store_dir)]).returncode == 0
+    out = tmp_path / "traces.otlp.json"
+    assert run(["export", "--store-dir", str(store_dir), "--fmt", "otlp",
+                "--out", str(out)]).returncode == 0
+    doc = _json.loads(out.read_text(encoding="utf-8"))
+    spans = doc["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    assert len(spans) == 10                                   # demo 数据集 5 题 × 2 trials

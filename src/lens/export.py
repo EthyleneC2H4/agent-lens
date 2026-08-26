@@ -179,3 +179,95 @@ def load_jsonl_rollouts(path: str | Path) -> list[dict[str, object]]:
                 raise ValueError(f"rollout 缺字段 {missing}: id={rec.get('id')}")
             records.append(rec)
     return records
+
+
+# ---------------- OTel collector 兼容出口（OTLP JSON traces） ----------------
+
+
+def to_otlp_document(
+    store: ContentAddressedStore,
+    run_id: str,
+    scorer: Scorer,
+) -> dict[str, object]:
+    """run 全部轨迹 → OTLP/JSON resourceSpans 文档（collector /v1/traces 可直收）。
+
+    映射：每条轨迹一个 span；traceId/spanId 由内容寻址派生
+    （sha256(run_id:task_id:trial)，确定性可复现）。诚实边界：轨迹库不存墙钟时间，
+    startTimeUnixNano 用 trial 序号推导的占位值——只保证单调与稳定，不是真实时刻。
+    判定走重放评分（judge later 不变量）；pass→STATUS_CODE_OK，否则 ERROR。
+    """
+    import hashlib
+
+    trajs = sorted(
+        store.list_by_run(run_id),
+        key=lambda t: (t.task_id, int(t.metadata.get("trial", 0))),
+    )
+    spans = []
+    for t in trajs:
+        trial = int(t.metadata.get("trial", 0))
+        h = hashlib.sha256(f"{t.run_id}:{t.task_id}:{trial}".encode()).hexdigest()
+        ok = scorer.score(t, {"gold": str(t.metadata.get("gold", ""))})
+        start_nano = trial * 1_000_000_000   # 占位时间：序号推导，非墙钟
+        attrs = [
+            {"key": "lens.task_id", "value": {"stringValue": t.task_id}},
+            {"key": "lens.run_id", "value": {"stringValue": t.run_id}},
+            {"key": "lens.version", "value": {"stringValue": t.version}},
+            {"key": "lens.trial", "value": {"intValue": str(trial)}},
+            {"key": "lens.pass", "value": {"boolValue": ok}},
+            {"key": "lens.gold", "value": {"stringValue": str(t.metadata.get("gold", ""))}},
+            {"key": "lens.tokens", "value": {"intValue": str(t.tokens)}},
+            {"key": "lens.model", "value": {"stringValue": t.model or ""}},
+        ]
+        status = (
+            {"code": "STATUS_CODE_OK"} if ok
+            else {"code": "STATUS_CODE_ERROR", "message": "scorer 判定失败"}
+        )
+        spans.append({
+            "traceId": h[:32],
+            "spanId": h[32:48],
+            "name": t.task_id,
+            "kind": "SPAN_KIND_INTERNAL",
+            "startTimeUnixNano": str(start_nano),
+            "endTimeUnixNano": str(start_nano + max(1, t.tokens) * 1_000_000),
+            "attributes": attrs,
+            "status": status,
+        })
+    return {
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [
+                    {"key": "service.name", "value": {"stringValue": "agent-lens"}},
+                ]
+            },
+            "scopeSpans": [{
+                "scope": {"name": "lens.export"},
+                "spans": spans,
+            }],
+        }]
+    }
+
+
+def push_to_collector(
+    document: dict[str, object], url: str, timeout_s: float = 10.0
+) -> tuple[bool, str]:
+    """OTLP JSON POST 到 collector（如 http://127.0.0.1:4318/v1/traces）。
+
+    显式 User-Agent（网关 bot 防护教训）；网络失败返回 (False, 原因) 不抛出。
+    """
+    import urllib.request
+
+    req = urllib.request.Request(  # noqa: S310
+        url,
+        data=json.dumps(document, ensure_ascii=False).encode(),
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "agentlens/0.9 (otel export)",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # noqa: S310
+            code = resp.status
+            return code in (200, 202), f"HTTP {code}"
+    except Exception as e:  # noqa: BLE001 — 推送失败如实上报给调用方决定退出码
+        return False, f"{type(e).__name__}: {e}"[:200]
