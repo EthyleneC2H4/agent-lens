@@ -15,11 +15,11 @@
 4. 与 AgentRL-Lab 打通一次高质量轨迹导出（eval→RL flywheel 最小演示）；
 5. 全流程一键复现 + 自包含 HTML 报告。
 
-## 1. 当前状态快照（2026-08-26 P6 批次收工，HEAD 见 git log）
+## 1. 当前状态快照（2026-08-26 P6 批次 + 真通路实测收工，HEAD 见 git log）
 
-**80 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过。**
-Phase A/D/F(首项) 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件（GitHub remote、
-AGENTLENS_API_KEY、人工标注会话），见 §4 各 Phase 标注。
+**83 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过；真端点冒烟通过率 1.00。**
+Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪——剩余未勾项均需外部条件
+（GitHub remote、人工标注会话），见 §4 各 Phase 标注。
 
 | 模块 | 内容 | 状态 |
 |---|---|---|
@@ -40,9 +40,11 @@ AGENTLENS_API_KEY、人工标注会话），见 §4 各 Phase 标注。
 | `cli.py` | demo/run/report/gate/smoke/calibrate/kappa-report/rescore/meta-eval/analyze/export/robustness | ✅ |
 
 **Mock 边界诚实清单**：
-- MockProvider 是默认 provider：demo 数字全部来自脚本化假模型；
-- llm_judge 的判定词表是规则 mock，尚未接真实模型；
-- κ 工具链就绪但**无人工标注数字**——切 block 前提文档中的阈值尚未被实测填充；
+- MockProvider 是默认 provider：离线测试与 CI 的 demo 数字全部来自脚本化假模型；
+- llm_judge 已接真实模型实测（2026-08-26，OpenCode Zen free 池 nemotron-3-ultra-free）：
+  swap 一致率 1.0（24 组成对）、构造池预标注一致率 90.5%（210 例，误判集中 truncation 类）；
+- κ 工具链就绪、真 judge 预标注数字已实测，但 **κ vs 人工标注仍无数字**
+  ——切 block 前提中「误杀≤2%」等阈值尚未被人工会话填充；
 - GitHub Action workflow 已入库，但真实 PR 流程演示待仓库推送。
 
 **不许退化的招牌不变量**：
@@ -52,7 +54,7 @@ AGENTLENS_API_KEY、人工标注会话），见 §4 各 Phase 标注。
 
 ## 2. 硬约束（不可协商）
 
-1. **免费资源红线**：禁止一切付费 API。真实模型只走 NVIDIA 托管 Nemotron 免费端点（OpenAI-compatible：base_url=`https://integrate.api.nvidia.com/v1`，key 从环境变量读取，严禁写死或入库）。GitHub Actions 用免费额度。
+1. **免费资源红线**：禁止一切付费 API。真实模型只走**免费模型池**（OpenAI-compatible）：默认 NVIDIA 托管 Nemotron 免费端点，可用环境变量 `AGENTLENS_BASE_URL`/`AGENTLENS_MODEL` 覆盖（当前实测用 OpenCode Zen free 池，仅 `-free` 后缀模型）；key 从环境变量 `AGENTLENS_API_KEY` 读取，严禁写死或入库。GitHub Actions 用免费额度。
 2. **mock-first**：每个外部依赖必须有确定性测试替身；任何改动后 `uv run pytest -q` 离线全绿、`uv run lens demo` EXIT=0。
 3. **人工标注的边界**：κ 标注需要人来定标准答案/偏好——agent 负责把预标注、复核界面、一致性计算全部自动化，把人的工作量压到最小；不得用 LLM 生成「伪人工」标注冒充。
 4. **工程规格**：Python ≥3.11；src 布局；uv 管理（uv.lock 入库）；ruff `line-length=100`、`select=["E","F","I","W"]`；CLI 用 Typer（保留 `@app.callback()`）+ rich（注意 markup 吞方括号陷阱，详见 AGENTS.md）。新增依赖需在 commit message 里说明理由。
@@ -62,7 +64,7 @@ AGENTLENS_API_KEY、人工标注会话），见 §4 各 Phase 标注。
 
 | Phase | 名称 | 依赖 | 现金支出 | 状态 |
 |---|---|---|---|---|
-| A | 真实通路加固 | 无 | ¥0 | ✅ 完成（ac7f265） |
+| A | 真实通路加固 | 无 | ¥0 | ✅ 完成（ac7f265；真通路实测 2026-08-26 补齐） |
 | B | GitHub Action 门禁 | A 可并行 | ¥0（免费额度） | 🟡 工具链就绪，真实 PR 演示待 remote |
 | C | judge 校准闭环扩容 | A | ¥0 | 🟡 工具链完备，κ 待人工标注会话 |
 | D | TRAIL 自检 runner + trace_analyzer | C | ¥0 | ✅ 完成（12413ca） |
@@ -77,7 +79,9 @@ AGENTLENS_API_KEY、人工标注会话），见 §4 各 Phase 标注。
 - [x] token 成本记账：`ChatResult` 结构化返回（prompt/completion tokens/model/latency）→ Trajectory 字段 → 报告成本区
 - [x] runner 失败策略显式化：`RunSummary` 分开计数网络错/任务错；单 job 失败隔离不炸矩阵；顺修 `lens run` 的 `p_success` 潜在 bug
 - [x] demo/run 增加 `--provider real` 旗标（缺 key 自动回落 mock 并提示）；新增 `lens smoke` 冒烟命令
-**DoD**：pytest 全绿（30→38）；默认路径行为不变；冒烟命令就绪——**真实端点实测待配置 AGENTLENS_API_KEY**。
+**DoD**：pytest 全绿（30→38）；默认路径行为不变；冒烟命令就绪——✅ **2026-08-26 真端点实测补齐**
+（key 就位后）：`lens smoke` 通过率 1.00 EXIT=0、`demo --provider real` 双模式门禁 EXIT=0；
+顺修两处实测暴露的 transport 缺陷（UA 被网关 bot 防护拦 403、畸形 200 响应炸穿——da03d2b）。
 
 ### Phase B：GitHub Action 门禁——🟡 工具链就绪（c54ede4），真实 PR 演示待仓库推送
 **目标**：「这个改动能不能合入」长进 CI。
@@ -160,9 +164,9 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 
 | Phase | 状态 | 缺的外部条件 |
 |---|---|---|
-| A 真实通路加固 | ✅ 完成 | 仅缺 key 做一次真模型冒烟实测 |
+| A 真实通路加固 | ✅ 完成 + ✅ 真端点实测（2026-08-26：smoke 1.00 / demo real EXIT=0 / transport 双缺陷修复） | — |
 | B GitHub Action 门禁 | 🟡 工具链就绪 | git remote（推送后补真实 PR 演示截图） |
-| C judge 校准闭环 | 🟡 工具链完备 | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳） |
+| C judge 校准闭环 | 🟡 工具链完备；真 judge 预标注实测落地（swap=1.0@24 组、构造池一致率 90.5%@210 例） | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳——κ vs 人工仍无数字） |
 | D TRAIL 自检 + trace_analyzer | ✅ 完成 | — |
 | E flywheel 导出 | ✅ 出口就绪 + **AgentRL-Lab 字段级对齐完成**（2026-08-26：`export --format agentrl`，跨仓 `load_trajectories` 回读测试钉死） |
 | v1.0 tag | ⏸ 未打 | B/C 收尾后 |

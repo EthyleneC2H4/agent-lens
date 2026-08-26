@@ -48,10 +48,10 @@ cli.py        lens demo/run/runs/report/gate/smoke/calibrate/kappa-report/rescor
 
 | 项 | 状态 |
 |---|---|
-| 离线测试 | ✅ 80 个全绿（mock-first，零网络依赖） |
+| 离线测试 | ✅ 83 个全绿（mock-first，零网络依赖） |
 | 门禁管线 | ✅ 本地模拟注入退化版本被 block 拦截；gate JSON 含 CI 噪声甄别字段；GitHub Action workflow 就绪 |
-| judge 校准 | 🟡 工具链完备（池/分层/复核页/κ 手算验证）；**κ 数字待人工标注会话**（~30 分钟） |
-| 真实模型通路 | 🟡 `lens smoke` 就绪；待配置 `AGENTLENS_API_KEY`（NVIDIA 免费端点）后实测 |
+| judge 校准 | 🟡 工具链完备 + 真 judge 预标注实测（swap=1.0@24 组、构造池一致率 90.5%@210 例）；**κ vs 人工待标注会话**（~30 分钟） |
+| 真实模型通路 | ✅ 实测通过：`lens smoke` 通过率 1.00、`demo --provider real` EXIT=0（OpenCode Zen free 池 · nemotron-3-ultra-free） |
 | 鲁棒性套件 | ✅ 注入用例 + utility/ASR 双指标离线实测；真实 agent 接入待外部 solver |
 | flywheel 出口 | ✅ rollout JSONL 导出+回读校验；与 AgentRL-Lab 字段级对齐 pending |
 

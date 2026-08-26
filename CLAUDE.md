@@ -71,7 +71,7 @@ report.py（自包含 HTML，内联 CSS 零外链）／ ci.py（gate JSON → Gi
 ## 工程规约（摘自 AGENTS.md / ROADMAP §2）
 
 - **mock-first**：每个外部依赖必须有确定性测试替身；任何改动后 `uv run pytest -q` 全绿且 `uv run lens demo` EXIT=0 才算完成。
-- **免费资源红线**：禁止一切付费 API。真实模型只走 NVIDIA 免费托管端点（OpenAI-compatible），key 只从环境变量 `AGENTLENS_API_KEY` 读取，缺失自动降级 mock（`lens smoke` 例外：缺 key 直接 exit 2，不静默回落——冒烟的意义就是验证真通路）。严禁硬编码付费服务端点或密钥。
+- **免费资源红线**：禁止一切付费 API。真实模型只走**免费模型池**（OpenAI-compatible）：默认 NVIDIA 端点，`AGENTLENS_BASE_URL`/`AGENTLENS_MODEL` 可覆盖（当前实测 OpenCode Zen free 池，仅 `-free` 模型）；key 只从环境变量 `AGENTLENS_API_KEY` 读取，缺失自动降级 mock（`lens smoke` 例外：缺 key 直接 exit 2）。严禁硬编码端点或密钥。
 - **人工标注边界**：κ 数字需要真人标注会话——agent 负责把预标注、复核界面、一致性计算全部自动化，把人的工作量压到最小；不得用 LLM 生成「伪人工」标注冒充。
 - **指标数学**：`metrics.py` 改动必须过手算用例验证（见 `tests/test_metrics_regression.py`）。
 - **代码风格**：Python ≥3.11；src 布局；类型注解；中文简短 docstring；CLI 用 Typer（保留 `@app.callback()`）+ rich（注意 markup 吞方括号陷阱）；新增依赖需在 commit message 里说明理由。
@@ -80,8 +80,8 @@ report.py（自包含 HTML，内联 CSS 零外链）／ ci.py（gate JSON → Gi
 
 ## 当前状态与已知债
 
-- 80 个离线测试全绿；Phase A/D/F(首项) 完成，B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
-- 未竟项均卡外部条件：git remote（真实 PR 门禁演示）、`AGENTLENS_API_KEY`（真模型冒烟实测）、人工标注会话（~30 分钟，产出 κ 实测数字）。
+- 83 个离线测试全绿；Phase A/D/F(首项) 完成（A 含真端点实测），B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
+- 未竟项均卡外部条件：git remote（真实 PR 门禁演示）、人工标注会话（~30 分钟，产出 κ vs 人工数字；真 judge 预标注已实测 swap=1.0 / 一致率 90.5%）。
 - v1.0 tag 待 B/C 收尾后再打。ROADMAP §8.2 技术债清单已全部闭环
   （2026-08-26 P5+P6 批次；唯一外部遗留 #9 ubuntu CI 实跑卡 remote）。
 - 数据集 JSONL 支持 `extra` 字段（任意元数据随轨迹落盘至 `metadata.extra`，
