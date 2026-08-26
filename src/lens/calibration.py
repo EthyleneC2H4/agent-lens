@@ -250,31 +250,37 @@ _REVIEW_TMPL = """<!doctype html>
 <style>
  body{{font-family:ui-sans-serif,system-ui;max-width:860px;margin:2rem auto;padding:0 1rem}}
  fieldset{{margin:.8rem 0;border:1px solid #ccc;border-radius:6px}}
+ fieldset.current{{outline:2px solid #6c8cff}}
  legend{{font-weight:600}} .cat{{color:#777;font-size:.85rem}}
  .io{{white-space:pre-wrap;background:#f7f7fb;padding:.4rem .6rem;border-radius:4px}}
  label{{margin-right:1rem}}
  .bar{{position:sticky;top:0;background:#fff;padding:.6rem 0;border-bottom:1px solid #eee}}
  button{{padding:.5rem 1rem;font-size:1rem}}
- .warn{{color:#b00}}
+ .warn{{color:#b00}} .pos{{color:#555;font-size:.9rem;margin-left:.6rem}}
+ kbd{{background:#f0f0f5;border-radius:3px;padding:0 .3rem;font-size:.85em}}
 </style></head><body>
 <h1>Judge 标注复核（{n_items} 例 · 预计 ~{minutes} 分钟）</h1>
 <p>逐条判断：<b>Agent 输出是否正确完成了任务？</b>忽略 judge 建议，按你自己的判断选择。
+快捷键：<kbd>j</kbd>/<kbd>k</kbd> 移动，<kbd>1</kbd>=正确 <kbd>0</kbd>=错误（裁决后自动跳下一题）。
 完成后点「导出标注」，得到 labels.jsonl。</p>
 <div class="bar">已裁决 <b id="done">0</b>/{n_items}
+ <span class="pos" id="pos"></span>
  <span class="warn" id="warn"></span>
  <button onclick="exportLabels()">导出标注 labels.jsonl</button>
  <button onclick="clearProgress()">清除进度</button></div>
 {items}
 <script>
 const PROGRESS_KEY = 'lens-review-progress';
+const fieldsets = [...document.querySelectorAll('fieldset')];
+let cur = 0;
 function updateDone(){{
   document.getElementById('done').textContent =
-    [...document.querySelectorAll('fieldset')].filter(f => f.querySelector('input:checked')).length;
+    fieldsets.filter(f => f.querySelector('input:checked')).length;
 }}
 function persistProgress(){{
   // 刷新不丢进度：勾选状态实时写入 localStorage
   const state = {{}};
-  for (const f of document.querySelectorAll('fieldset')) {{
+  for (const f of fieldsets) {{
     const sel = f.querySelector('input:checked');
     if (sel) state[f.dataset.id] = sel.value;
   }}
@@ -289,6 +295,22 @@ function restoreProgress(){{
     }}
   }} catch (e) {{}}
 }}
+function setCurrent(i){{
+  if (!fieldsets.length) return;
+  cur = Math.max(0, Math.min(i, fieldsets.length - 1));
+  for (const f of fieldsets) f.classList.remove('current');
+  const f = fieldsets[cur];
+  f.classList.add('current');
+  document.getElementById('pos').textContent = `第 ${{cur + 1}}/${{fieldsets.length}} 例`;
+  f.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+}}
+function answerCurrent(val){{
+  const sel = fieldsets[cur].querySelector(`input[value="${{val}}"]`);
+  if (sel) sel.checked = true;
+  persistProgress();
+  updateDone();
+  if (cur < fieldsets.length - 1) setCurrent(cur + 1);
+}}
 function clearProgress(){{
   try {{ localStorage.removeItem(PROGRESS_KEY); }} catch (e) {{}}
   for (const r of document.querySelectorAll('input[type=radio]')) r.checked = false;
@@ -297,7 +319,7 @@ function clearProgress(){{
 }}
 function exportLabels(){{
   const rows=[]; let missing=0;
-  for (const f of document.querySelectorAll('fieldset')) {{
+  for (const f of fieldsets) {{
     const sel = f.querySelector('input:checked');
     if (!sel) {{ missing++; continue; }}
     rows.push(JSON.stringify({{item_id: f.dataset.id, human_label: sel.value === '1'}}));
@@ -307,8 +329,15 @@ function exportLabels(){{
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'labels.jsonl'; a.click();
 }}
+document.addEventListener('keydown', (e) => {{
+  if (e.key === 'j' || e.key === 'ArrowDown') {{ e.preventDefault(); setCurrent(cur + 1); }}
+  else if (e.key === 'k' || e.key === 'ArrowUp') {{ e.preventDefault(); setCurrent(cur - 1); }}
+  else if (e.key === '1') answerCurrent('1');
+  else if (e.key === '0') answerCurrent('0');
+}});
 document.addEventListener('change', () => {{ persistProgress(); updateDone(); }});
 restoreProgress();
+setCurrent(0);
 </script></body></html>"""
 
 

@@ -102,6 +102,20 @@ def test_resolve_judge_specs():
         resolve_judge("unknown")
 
 
+# ---------- P5 技术债 #10：复核页键盘快捷键与焦点管理 ----------
+
+
+def test_review_html_keyboard_shortcuts():
+    """复核页键盘效率：j/k 移动、1/0 裁决并自动跳下一题、当前项滚动居中。"""
+    pool = build_pool(seed=0)[:5]
+    html = render_review_html(pool, ["yes"] * 5)
+    for marker in (
+        "keydown", "scrollIntoView", "answerCurrent", "setCurrent",
+        'id="pos"', "'j'", "'k'", "'1'", "'0'",
+    ):
+        assert marker in html, f"缺少键盘效率标记: {marker}"
+
+
 # ---------- P5 技术债 #7：真 pairwise LLM judge ----------
 
 
