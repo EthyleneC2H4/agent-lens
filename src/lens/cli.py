@@ -291,8 +291,21 @@ def gate(
             f"[yellow]⚠ 基线未显式指定：自动选择 base={base_id} cand={cand_id}"
             f"（按创建序，可用 lens runs 查看全部 run 后显式指定）[/yellow]"
         )
+    if base_id == cand_id:
+        console.print(
+            "[red]base 与 cand 是同一 run——diff 无意义，拒绝判定"
+            "（用 lens runs 查看全部 run 后显式指定两个不同 run）[/red]"
+        )
+        raise typer.Exit(1)
     base_r, _, _ = _group_results(store.list_by_run(base_id))
     cand_r, _, _ = _group_results(store.list_by_run(cand_id))
+    # fail closed：没有证据就没有资格放行（run 不存在 / 全部 job 失败 → 空结果）
+    if not base_r or not cand_r:
+        console.print(
+            "[red]门禁证据缺失：base 或 cand 无任何已落盘轨迹"
+            "（run 不存在或评测全崩）——拒绝放行[/red]"
+        )
+        raise typer.Exit(1)
     diffs = diff_versions(base_r, cand_r)
     cand_rate = (
         sum(sum(r) / len(r) for r in cand_r.values()) / len(cand_r) if cand_r else 0.0
