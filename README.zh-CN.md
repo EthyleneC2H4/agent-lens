@@ -156,7 +156,7 @@ uv run lens meta-eval          # 分辨力满分才允许上岗
 | judge 预标注 | ✅ swap 一致率 1.00（24 组）· 210 例构造池一致率 90.5% |
 | 鲁棒性套件 | ✅ 注入用例 + utility/ASR 双指标，离线确定性 |
 | 人工 κ 会话 | 🟡 待办——约 30 分钟真人裁决（工具链就绪；禁止 agent 代劳造假） |
-| 真实 PR 门禁演示 | 🟡 演示 PR 运行中——绿/红两态确认后截图入 `docs/` |
+| 真实 PR 门禁演示 | ✅ [PR #1 observe](https://github.com/EthyleneC2H4/agent-lens/pull/1) 绿跑 + 「放行」评论列全 5 例退化 · [PR #2 block](https://github.com/EthyleneC2H4/agent-lens/pull/2) 红 X + 「⛔ 阻断」（[截图](docs/evidence/)） |
 
 ### 免费资源红线
 

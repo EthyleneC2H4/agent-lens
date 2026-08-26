@@ -17,9 +17,9 @@
 
 ## 1. 当前状态快照（2026-08-26 P7 批次收工，HEAD 见 git log）
 
-**92 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过；真端点冒烟通过率 1.00。**
-Phase A/D/F 完成，B/C/E 工具链就绪——剩余未勾项均需外部条件
-（GitHub remote、人工标注会话），见 §4 各 Phase 标注。
+**94 个离线确定性测试全绿；`uv run lens demo` EXIT=0；ruff 全过；真端点冒烟通过率 1.00。**
+Phase A/B/D/F 完成（B 含真实 PR 两态演示 + ubuntu CI 实跑），C/E 工具链就绪——
+剩余未勾项仅人工标注会话（进行中），见 §4 各 Phase 标注。
 
 | 模块 | 内容 | 状态 |
 |---|---|---|
@@ -84,7 +84,7 @@ Phase A/D/F 完成，B/C/E 工具链就绪——剩余未勾项均需外部条�
 （key 就位后）：`lens smoke` 通过率 1.00 EXIT=0、`demo --provider real` 双模式门禁 EXIT=0；
 顺修两处实测暴露的 transport 缺陷（UA 被网关 bot 防护拦 403、畸形 200 响应炸穿——da03d2b）。
 
-### Phase B：GitHub Action 门禁——🟡 工具链就绪（c54ede4），真实 PR 演示待仓库推送
+### Phase B：GitHub Action 门禁——✅ 完成（真实 PR 两态演示 2026-08-26 落地）
 **目标**：「这个改动能不能合入」长进 CI。
 - [x] `.github/workflows/lens-gate.yml`：push/PR 触发，pytest → 双版本评测 → `gate --out-json` → artifact 上传 → PR 评论（幂等更新）
 - [x] PR 评论机器人：`lens.ci.render_comment` + 幂等 upsert（零依赖 urllib，transport 注入可离线测试）；block 超阈值 exit 非 0
@@ -94,8 +94,14 @@ Phase A/D/F 完成，B/C/E 工具链就绪——剩余未勾项均需外部条�
 - [x] 一键引导脚本 `scripts/bootstrap-remote.sh`（P7）：gh 自动建仓或打印手工路径 →
   推 main → 自动生成 demo/regressed-observe / demo/regressed-block 两个演示分支
   （cand 切换恒错 solver 制造真回归；workflow 补丁经真实文件干跑验证）（9e272c1）
-- [ ] **陌生 PR 触发评测的实录演示（含截图入 docs/）**——跑一次引导脚本 + 开两个 PR 即可补齐
-**DoD**：本地模拟等价测试通过；真实 PR 流程项保持未勾。
+- [x] **陌生 PR 触发评测的实录演示（含截图入 docs/）**——✅ 2026-08-26 补齐：
+  [PR#1 observe](https://github.com/EthyleneC2H4/agent-lens/pull/1) 绿跑 + bot 评论
+  「放行」列全 5 case 退化；[PR#2 block](https://github.com/EthyleneC2H4/agent-lens/pull/2)
+  红 X + bot 评论「⛔ 阻断」（截图 `docs/evidence/pr1-gate-observe.png` /
+  `pr2-gate-block.png`）。ubuntu CI 实跑随之闭环（§8.2 #9）。
+  演示过程真实暴露并修复两处缺陷：gate 对空证据 fail-open（eb21fb0）+
+  评论步未加 if:always() 致阻断判定发不出（随本轮修复）。
+**DoD**：本地模拟等价测试通过；真实 PR 流程两态实录演示完成（2026-08-26）。✅
 
 ### Phase C：judge 校准闭环扩容（本项目最重的差异化证据）——🟡 工具链完备（f40c5e7），κ 数字待人工标注
 **目标**：把「中等一致的 judge 凭什么拦工程师」用数字回答。
@@ -177,12 +183,12 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 | Phase | 状态 | 缺的外部条件 |
 |---|---|---|
 | A 真实通路加固 | ✅ 完成 + ✅ 真端点实测（2026-08-26：smoke 1.00 / demo real EXIT=0 / transport 双缺陷修复） | — |
-| B GitHub Action 门禁 | 🟡 工具链就绪 + 一键引导脚本（`scripts/bootstrap-remote.sh`：建仓→推送→生成 observe/block 两态演示分支） | git remote（跑一次脚本 + 开两个 PR 截图即闭环） |
+| B GitHub Action 门禁 | ✅ 完成（2026-08-26：真实 PR 演示 observe/block 两态落地，截图入 docs/evidence/；ubuntu CI 全链路实跑） | — |
 | C judge 校准闭环 | 🟡 工具链完备；真 judge 预标注实测落地（swap=1.0@24 组、构造池一致率 90.5%@210 例）；LLM 代标全链路彩排通过（见 §8.3） | **人工标注会话**（~30 分钟，硬约束 3 不许 agent 代劳——κ vs 人工仍无数字） |
 | D TRAIL 自检 + trace_analyzer | ✅ 完成 | — |
 | E flywheel 导出 | ✅ 出口就绪 + **AgentRL-Lab 字段级对齐完成**（2026-08-26：`export --format agentrl`，跨仓 `load_trajectories` 回读测试钉死）+ OTel collector 出口（P7） |
 | F 可选深化 | ✅ 完成（P6 鲁棒性套件；P7 OTel 导出 + 只读 Web UI） | — |
-| v1.0 tag | ⏸ 未打 | B/C 收尾后 |
+| v1.0 tag | ⏸ 未打 | **仅剩 C**（人工标注会话进行中） |
 
 ### 8.2 代码缺陷与待改进点（按优先级；✅ = 已修，标注修复批次）
 
@@ -210,8 +216,9 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 8. ✅ **export reward 只有 0/1**：可选字段 `reward_detail.key_state_fraction`
    （required_states 命中比例）；顺修 runner 未把 required_states 写进轨迹 metadata
    的丢失缺陷（此前 key_state 判定事后无法重放）。schema 文档同步。（P5 批次 4b6c45c）
-9. **CI 平台矩阵单一**：仅在 macOS 本机验证过，workflow 的 ubuntu 路径未真实跑过一次
-   （随 remote 解锁）。——外部依赖，保持未勾。
+9. ✅ **CI 平台矩阵单一**：真实 PR 流程演示（PR#1/PR#2）在 ubuntu-latest 上完整跑了
+   pytest → 双版本评测 → gate 判定 → PR 评论全链路，两态结论均符合设计
+   （observe 绿 / block 红 X）。（P7 收官批次）
 10. ✅ **calibrate 复核页无键盘快捷键/自动跳焦**：j/k 移动、1/0 裁决并 advance、
     当前项高亮 + scrollIntoView 居中、「第 x/N 例」位置指示。（P5 批次 146b7c4）
 11. ✅ **gate-policy 承诺的「报告页 per-task CI 列」不存在**：case 表补逐题
@@ -223,13 +230,16 @@ AGENTLENS_API_KEY**。据此对 §4 做如下修订（不改变 DoD 语义，只
 
 > P6 批次收工（2026-08-26）：#11/#12 为「文档承诺未兑现」类缺口的清理；
 > 同批次落地 Phase F 首项对抗鲁棒性套件。§8.2 清单至此全部闭环
-> （唯一外部遗留仍是 #9 的 ubuntu CI 实跑）。
+> （#9 ubuntu CI 实跑已于 P7 收官批次随真实 PR 演示一并闭环）。
 
-### 8.3 P7 批次（2026-08-26 收官）与 LLM 代标彩排的诚实边界
+### 8.3 P7 收官批次（2026-08-26）与 LLM 代标彩排的诚实边界
 
 P7 落地：OTel 导出端点（d81596f）、只读 Web UI（7ffe862）、remote 一键引导 +
-退化演示 solver（9e272c1）。至此 agent 可做项全部做完，剩余两项均卡用户动作：
-①跑 `scripts/bootstrap-remote.sh` 开两个演示 PR；②~30 分钟人工标注会话。
+退化演示 solver（9e272c1）；随后真实 PR 演示全链路打通——仓库推送、双演示分支、
+observe/block 两态实录（截图 `docs/evidence/`），过程中真实暴露并修复 gate
+fail-open 双缺陷（eb21fb0）与评论步时序缺陷（if:always()）。**v1.0 完成态
+五项中 #1/#3/#4/#5 已满足，仅剩 #2 的 κ 人工标注数字**（标注会话进行中，
+硬约束 3 禁止 agent 代劳）。
 
 **LLM 代标彩排 ≠ 人工标注**：应「不想人工标注」的诉求，用真实端点对校准池做了
 一次独立 LLM 代标全链路彩排（类别均衡抽样 21 例，45 秒跑完，产物只落 /tmp

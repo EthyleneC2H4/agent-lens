@@ -162,7 +162,7 @@ Honest as of 2026-08-26 — everything below is reproducible from this repo:
 | Judge pre-labels | ✅ swap-consistency 1.00 (24 pairs) · 90.5% agreement on 210 constructed items |
 | Robustness suite | ✅ Injection cases + utility/ASR metrics, offline-deterministic |
 | Human κ session | 🟡 Pending — ~30 min of human adjudication (tooling ready; agents are forbidden from faking it) |
-| Real-PR gate demo | 🟡 Live demo PRs running — screenshots land in `docs/` when green/red states confirm |
+| Real-PR gate demo | ✅ [PR #1 observe](https://github.com/EthyleneC2H4/agent-lens/pull/1) green + "放行" comment listing all regressions · [PR #2 block](https://github.com/EthyleneC2H4/agent-lens/pull/2) red X + "⛔ 阻断" ([screenshots](docs/evidence/)) |
 
 ### Free-resource red line
 

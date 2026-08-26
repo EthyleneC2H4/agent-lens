@@ -80,9 +80,8 @@ report.py（自包含 HTML，内联 CSS 零外链）／ ci.py（gate JSON → Gi
 
 ## 当前状态与已知债
 
-- 92 个离线测试全绿；Phase A/D/F 完成，B/C/E 工具链就绪（详见 ROADMAP §3–§4 勾选）。
-- 未竟项均卡用户动作：`scripts/bootstrap-remote.sh` 一键建仓推送 + 开两个演示 PR（真实门禁演示截图）；人工标注会话（~30 分钟，产出 κ vs 人工数字；硬约束 3 不许 LLM 代劳——LLM 代标仅可作管线彩排，不得回填决策数字）。
-- v1.0 tag 待 B/C 收尾后再打。ROADMAP §8.2 技术债清单已全部闭环
-  （唯一外部遗留 #9 ubuntu CI 实跑随引导脚本一并解锁）。
+- 94 个离线测试全绿；Phase A/B/D/F 完成（B 含真实 PR 两态演示：[PR#1 observe](https://github.com/EthyleneC2H4/agent-lens/pull/1) 放行 / [PR#2 block](https://github.com/EthyleneC2H4/agent-lens/pull/2) 阻断，截图在 `docs/evidence/`），E 出口就绪（AgentRL-Lab 对齐 + OTel）——仅剩 Phase C 的 κ 人工标注数字。
+- 唯一未竟项卡用户动作：人工标注会话（~30 分钟，产出 κ vs 人工数字；硬约束 3 不许 LLM 代劳——LLM 代标仅可作管线彩排，不得回填决策数字）。κ 数字落地后即可打 v1.0 tag。
+- gate 有 fail-closed 守卫（同 run 自 diff 拒判 / 空 base 或 cand 证据拒放行）；演示过程曾暴露「solver 契约破裂 → cand run 为空 → 门禁静默放行」缺陷，回归测试钉死在 `tests/test_degraded_solver.py` 与 `tests/test_report_ci.py`。
 - 数据集 JSONL 支持 `extra` 字段（任意元数据随轨迹落盘至 `metadata.extra`，
   事后重放任意 scorer 口径的传输通道）。
