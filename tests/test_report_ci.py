@@ -458,3 +458,46 @@ def test_review_html_has_progress_persistence():
     for marker in ("localStorage.setItem", "restoreProgress", "clearProgress",
                    "lens-review-progress"):
         assert marker in html, f"缺少进度持久化标记: {marker}"
+
+
+# ---------- P7 热修：gate 对「无证据/同 run」必须 fail closed ----------
+
+
+def _cli(tmp_path, args):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    return subprocess.run(
+        [sys.executable, "-m", "lens.cli"] + args,
+        capture_output=True, text=True,
+        env={**__import__("os").environ, "PYTHONPATH": str(root / "src")},
+        cwd=tmp_path,
+    )
+
+
+def test_gate_refuses_single_run_self_diff(tmp_path):
+    """store 只有一个 run 时自动基线会自己 diff 自己——必须拒绝而非静默放行。"""
+    ds = "src/lens/fixtures/demo_dataset.jsonl"   # 相对 root；cwd=tmp_path 下不可用
+    from pathlib import Path
+
+    ds = str(Path(__file__).resolve().parents[1] / ds)
+    store_dir = tmp_path / "store"
+    assert _cli(tmp_path, ["run", "--dataset", ds, "--version", "v1",
+                           "--n-trials", "2", "--store-dir", str(store_dir)]).returncode == 0
+    r = _cli(tmp_path, ["gate", "--store-dir", str(store_dir), "--mode", "block"])
+    assert r.returncode == 1 and "同一 run" in (r.stdout + r.stderr)
+
+
+def test_gate_fails_closed_on_empty_cand_evidence(tmp_path):
+    """cand run 不存在（无轨迹）时 gate 必须 exit 1，不得静默放行。"""
+    from pathlib import Path
+
+    ds = str(Path(__file__).resolve().parents[1] / "src/lens/fixtures/demo_dataset.jsonl")
+    store_dir = tmp_path / "store"
+    assert _cli(tmp_path, ["run", "--dataset", ds, "--version", "base",
+                           "--n-trials", "2", "--store-dir", str(store_dir)]).returncode == 0
+    r = _cli(tmp_path, ["gate", "--store-dir", str(store_dir), "--mode", "block",
+                        "--cand-run", "no-such-run"])
+    assert r.returncode == 1 and "证据缺失" in (r.stdout + r.stderr)
