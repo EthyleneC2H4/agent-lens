@@ -139,6 +139,44 @@ def test_gate_baseline_auto_picks_creation_order(tmp_path):
         assert rid in r.stdout
 
 
+# ---------- P6：噪声甄别接入 gate（regression_summary 从死代码变一等输出） ----------
+
+
+def test_gate_json_marks_high_confidence_regression(tmp_path):
+    """稳定退化的 case 在 gate JSON 中带 ci_overlap=False；console 打 🔥 高置信标记。"""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from lens.runner import Runner, Task, make_versioned_solver
+    from lens.store import ContentAddressedStore
+
+    root = Path(__file__).resolve().parents[1]
+    env = {**os.environ, "PYTHONPATH": str(root / "src")}
+    base_cmd = [sys.executable, "-m", "lens.cli"]
+
+    tasks = [Task(id=f"case-{i}", input="q", gold="ans") for i in range(4)]
+    store_dir = tmp_path / "store"
+    runner = Runner(ContentAddressedStore(store_dir))
+    runner.run(tasks, make_versioned_solver(1.0, seed_base=11), version="base", n_trials=5)
+    runner.run(tasks, make_versioned_solver(0.0, seed_base=23), version="cand", n_trials=5)
+
+    out_json = tmp_path / "gate.json"
+    r = subprocess.run(
+        base_cmd + ["gate", "--store-dir", str(store_dir), "--mode", "block",
+                    "--base-run", "base-seed0", "--cand-run", "cand-seed0",
+                    "--out-json", str(out_json)],
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )
+    assert r.returncode == 1                                  # block 拦截退化版本
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    regressed = [d for d in payload["diffs"] if d["status"] == "regressed"]
+    assert len(regressed) == 4                                # 全部 case 稳定退化
+    assert all(d["ci_overlap"] is False for d in regressed)   # CI 不重叠 → 非噪声
+    assert "🔥" in r.stdout                                   # 高置信退化醒目标注
+
+
 def test_gate_explicit_runs_marks_not_auto(tmp_path):
     """显式指定 --base-run/--cand-run 时 baseline_auto=False。"""
     import os

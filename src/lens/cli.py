@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import metrics as M
-from .regression import GatePolicy, diff_versions, evaluate_gate
+from .regression import GatePolicy, diff_versions, evaluate_gate, regression_summary
 from .report import render_report
 from .runner import Runner, make_versioned_solver
 from .store import ContentAddressedStore
@@ -274,6 +274,17 @@ def gate(
         sum(sum(r) / len(r) for r in cand_r.values()) / len(cand_r) if cand_r else 0.0
     )
     allowed, violations = evaluate_gate(diffs, GatePolicy(mode=mode), cand_rate)
+    # 噪声甄别（gate-policy §2.3）：case 级 bootstrap CI 重叠 → 差异可能只是采样噪声
+    ci_map = regression_summary(
+        {k: [float(x) for x in v] for k, v in base_r.items()},
+        {k: [float(x) for x in v] for k, v in cand_r.items()},
+    )
+    hot = [
+        d.task_id for d in diffs
+        if d.status == "regressed" and ci_map.get(d.task_id, {}).get("ci_overlap") is False
+    ]
+    if hot:
+        console.print(f"[red]🔥 高置信退化（bootstrap CI 不重叠，非采样噪声）: {hot}[/red]")
     table = Table(title=f"diff {base_id} → {cand_id}")
     table.add_column("case")
     table.add_column("base")
@@ -308,6 +319,7 @@ def gate(
                     "cand_passes": d.cand_passes,
                     "trials": d.trials,
                     "status": d.status,
+                    "ci_overlap": ci_map.get(d.task_id, {}).get("ci_overlap"),
                 }
                 for d in diffs
             ],
