@@ -53,6 +53,7 @@ jobs:
           uv run lens run \
             --dataset src/lens/fixtures/demo_dataset.jsonl \
             --version "cand-${{ github.event.pull_request.head.sha || github.sha }}" \
+            --solver-spec lens.fixtures.degraded_solver:make_degraded_solver \
             --n-trials 8 --store-dir .lensstore
 
       - name: 门禁判定（超阈值时 exit 非 0）
